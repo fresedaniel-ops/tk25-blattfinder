@@ -173,6 +173,10 @@ tr:last-child td { border-bottom: 0; }
 .pill.warn { color: var(--warn); border: 1px solid var(--warn); background: var(--warn-bg); }
 .pill.err { color: var(--frame); border: 1px solid var(--frame); }
 .addrrow { display: flex; gap: 8px; }
+.rwrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; gap: 8px; }
+.rwrow select { font: 500 .9rem var(--font-body); color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 8px; }
+@media (max-width: 560px) { .rwrow { grid-template-columns: 1fr 1fr; } }
+.rwok { color: var(--ok); }
 .addrrow input { flex: 1; }
 .addrlist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
 .addrlist li + li { border-top: 1px solid var(--rule); }
@@ -256,6 +260,21 @@ footer p { margin: 0; max-width: 70ch; }
       <button type="button" class="btn" id="copy">Ergebnis kopieren</button>
       <span class="toast" id="toast" aria-live="polite"></span>
     </div>
+    <form class="field" id="rwform">
+      <label for="rwin">Oder Rechts-/Hochwert eingeben (z. B. aus einem Messplot)</label>
+      <div class="rwrow">
+        <input type="text" id="rwin" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Rechtswert, z. B. 34 12 520" aria-label="Rechtswert">
+        <input type="text" id="hwin" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Hochwert, z. B. 59 42 705" aria-label="Hochwert">
+        <select id="sysin" aria-label="Koordinatensystem der Eingabe">
+          <option value="auto">System automatisch</option>
+          <option value="gk2">Gauß-Krüger 2</option><option value="gk3">Gauß-Krüger 3</option>
+          <option value="gk4">Gauß-Krüger 4</option><option value="gk5">Gauß-Krüger 5</option>
+          <option value="utm32">UTM 32N</option><option value="utm33">UTM 33N</option>
+        </select>
+        <button type="submit" class="btn">Umrechnen</button>
+      </div>
+      <p class="hint" id="rwmsg">Leerzeichen sind erlaubt. „Automatisch“ erkennt Gauß-Krüger an der ersten Ziffer (3… = Zone 3) und UTM an 6 Stellen oder der Zone 32/33 vorn.</p>
+    </form>
     <p class="error" id="err" hidden></p>
     <div class="gpshelp" id="gpshelp" hidden>
       <strong>Koordinaten vom Handy übernehmen</strong>
@@ -477,9 +496,26 @@ function fromLink(t) {
   }
   return { error: "In diesem Link stehen keine Koordinaten. Bitte die Koordinaten selbst kopieren (Anleitung direkt hierunter)." };
 }
+// Rechts-/Hochwert im Koordinatenfeld erkennen, z. B. "34 12 520  59 42 705" oder "3412520 / 5942705"
+function fromProjected(t) {
+  if (/[°′″]/.test(t)) return null;
+  t = t.replace(/\b(rechtswert|hochwert|rechts|hoch|rw|hw|ost|nord|east|north)\b\s*[:=]?/gi, " ");
+  if (/[a-zäöüß'"]/i.test(t)) return null;
+  const toks = t.match(/\d+(?:[.,]\d+)?/g);
+  if (!toks || toks.length < 2) return null;
+  const big = toks.some(x => parseFloat(x.replace(",", ".")) >= 1000);
+  if (!big && toks.length === 2) return null;
+  for (let k = 1; k < toks.length; k++) {
+    const r = unproject(toks.slice(0, k).join(""), toks.slice(k).join(""), "auto");
+    if (!r.error) return r;
+  }
+  return { error: "Das sieht nach Rechts-/Hochwert aus, ließ sich aber nicht eindeutig lesen. Bitte die Felder darunter verwenden." };
+}
 function parseCoord(txt) {
   const t = txt.trim();
   if (!t) return { error: "Bitte Koordinaten eingeben." };
+  const pj = fromProjected(t);
+  if (pj) return pj.error ? pj : { lat: pj.lat, lon: pj.lon, from: pj.label };
   const lk = fromLink(t);
   if (lk) return lk.error ? lk : check(lk.lat, lk.lon);
   if (/[°′'"″]/.test(t)) {
@@ -512,8 +548,10 @@ let last = null;
 
 function render() {
   const p = parseCoord($("coord").value);
-  if (p.error) { $("err").textContent = p.error; $("err").hidden = false; if (/link/i.test(p.error)) $("gpshelp").hidden = false; $("result").hidden = true; $("proto").hidden = true; return; }
+  if (p.error) { $("err").className = "error"; $("err").textContent = p.error; $("err").hidden = false; if (/link/i.test(p.error)) $("gpshelp").hidden = false; $("result").hidden = true; $("proto").hidden = true; return; }
   $("err").hidden = true; $("result").hidden = false;
+  if (p.from) { $("err").hidden = false; $("err").className = "hint rwok"; $("err").textContent = "Erkannt als " + p.from + " → WGS84 " + p.lat.toFixed(6) + ", " + p.lon.toFixed(6); }
+  else $("err").className = "error";
   const r = tk25(p.lat, p.lon, puffer);
   last = { ...r, lat: p.lat, lon: p.lon };
   $("proto").hidden = false;
@@ -664,6 +702,67 @@ function project(lat, lon, key, zonePrefix) {
   return { rw: lon, hw: lat, key: "wgs", zone: null };
 }
 
+// --- Rückrechnung: UTM / Gauß-Krüger -> WGS84 ---
+function tmInverse(E, N, lon0Deg, ell, k0, FE, FN) {
+  const { a, f } = ell, n = f / (2 - f), n2 = n * n, n3 = n2 * n, n4 = n3 * n;
+  const A = a / (1 + n) * (1 + n2 / 4 + n4 / 64);
+  const be = [0,
+    n / 2 - 2 / 3 * n2 + 37 / 96 * n3 - 1 / 360 * n4,
+    1 / 48 * n2 + 1 / 15 * n3 - 437 / 1440 * n4,
+    17 / 480 * n3 - 37 / 840 * n4,
+    4397 / 161280 * n4];
+  const xi = (N - FN) / (k0 * A), eta = (E - FE) / (k0 * A);
+  let xi1 = xi, eta1 = eta;
+  for (let j = 1; j <= 4; j++) {
+    xi1 -= be[j] * Math.sin(2 * j * xi) * Math.cosh(2 * j * eta);
+    eta1 -= be[j] * Math.cos(2 * j * xi) * Math.sinh(2 * j * eta);
+  }
+  const chi = Math.asin(Math.sin(xi1) / Math.cosh(eta1));
+  const lon = lon0Deg + Math.atan2(Math.sinh(eta1), Math.cos(xi1)) * 180 / Math.PI;
+  // konforme Breite -> geodätische Breite (Newton nach Karney)
+  const e = Math.sqrt(f * (2 - f)), taup = Math.tan(chi);
+  let tau = taup;
+  for (let i = 0; i < 6; i++) {
+    const sig = Math.sinh(e * Math.atanh(e * tau / Math.sqrt(1 + tau * tau)));
+    const tp = tau * Math.sqrt(1 + sig * sig) - sig * Math.sqrt(1 + tau * tau);
+    const dtau = (taup - tp) / Math.sqrt(1 + tp * tp) * (1 + (1 - e * e) * tau * tau) / ((1 - e * e) * Math.sqrt(1 + tau * tau));
+    tau += dtau;
+    if (Math.abs(dtau) < 1e-14) break;
+  }
+  return [Math.atan(tau) * 180 / Math.PI, lon];
+}
+function dhdn2wgs(lat, lon) {
+  const as = Math.PI / 180 / 3600;
+  const tx = 598.1, ty = 73.7, tz = 418.2, rx = 0.202 * as, ry = 0.045 * as, rz = -2.455 * as, s = 6.7e-6;
+  const [X, Y, Z] = geo2ecef(lat, lon, 0, BESSEL);
+  const Xw = tx + (1 + s) * (X - rz * Y + ry * Z), Yw = ty + (1 + s) * (rz * X + Y - rx * Z), Zw = tz + (1 + s) * (-ry * X + rx * Y + Z);
+  return ecef2geo(Xw, Yw, Zw, WGS84E);
+}
+// Rechts-/Hochwert lesen; Leerzeichen erlaubt. Liefert {lat, lon, key, label} oder {error}
+function unproject(rwTxt, hwTxt, mode) {
+  const num = s => { const t = String(s).replace(/\s+/g, "").replace(",", "."); return /^\d+(\.\d+)?$/.test(t) ? +t : NaN; };
+  const rw = num(rwTxt), hw = num(hwTxt);
+  if (!isFinite(rw) || !isFinite(hw)) return { error: "Bitte Rechts- und Hochwert als Zahlen eingeben, z. B. 34 12 520 und 59 42 705." };
+  let key = mode;
+  if (mode === "auto") {
+    if (rw >= 2e6 && rw < 6e6) key = "gk" + Math.floor(rw / 1e6);
+    else if (rw >= 32e6 && rw < 34e6) key = "utm" + Math.floor(rw / 1e6);
+    else if (rw >= 1.5e5 && rw < 9e5) key = "utm32";
+    else return { error: "Rechtswert nicht erkannt. Gauß-Krüger hat 7 Stellen (z. B. 34 12 520), UTM 6 Stellen oder 8 Stellen mit Zone (32 575461)." };
+  }
+  let lat, lon;
+  if (key.startsWith("gk")) {
+    const z = +key.slice(2);
+    const [la, lo] = tmInverse(rw, hw, 3 * z, BESSEL, 1, z * 1e6 + 500000, 0);
+    [lat, lon] = dhdn2wgs(la, lo);
+  } else {
+    const z = +key.slice(3), e = rw >= 1e7 ? rw - z * 1e6 : rw;
+    [lat, lon] = tmInverse(e, hw, 6 * z - 183, GRS80, 0.9996, 500000, 0);
+  }
+  if (!(lat > 47 && lat < 55.9 && lon > 5.5 && lon < 15.5)) return { error: "Die Werte ergeben keinen Punkt in Deutschland. Rechts- und Hochwert vertauscht oder falsches System?" };
+  return { lat, lon, key, label: CRS[key].label + " (EPSG:" + CRS[key].epsg + ")" };
+}
+
 // --- Für das Messprotokoll ---
 const pref = { crs: "wgs", dec: "0", zpre: true, dcomma: false, wfmt: "dd", grp: true };
 try { Object.assign(pref, JSON.parse(localStorage.getItem("tk25-proto3") || "{}")); } catch (e) {}
@@ -800,6 +899,17 @@ function setPuffer(v) {
 
 document.querySelectorAll("[data-p]").forEach(b => b.addEventListener("click", () => setPuffer(+b.dataset.p)));
 $("coord").addEventListener("input", render);
+$("rwform").addEventListener("submit", ev => {
+  ev.preventDefault();
+  const r = unproject($("rwin").value, $("hwin").value, $("sysin").value);
+  if (r.error) { $("rwmsg").textContent = r.error; $("rwmsg").className = "error"; return; }
+  $("coord").value = r.lat.toFixed(6) + ", " + r.lon.toFixed(6);
+  render();
+  $("rwmsg").className = "hint rwok";
+  $("rwmsg").textContent = "Umgerechnet aus " + r.label + " → WGS84 " + r.lat.toFixed(6) + ", " + r.lon.toFixed(6) +
+    (r.key.startsWith("gk") ? " (Gauß-Krüger: Genauigkeit der Umrechnung etwa 1–3 m)" : "");
+  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 $("list").addEventListener("input", renderBatch);
 $("copy").addEventListener("click", () => copy(resultText(), "toast", $("coord")));
 $("copycsv").addEventListener("click", () => copy(csv, "toast2", $("list")));

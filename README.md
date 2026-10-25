@@ -7,6 +7,7 @@ Topographischen Karte 1:25 000 (TK25) mit Nummer, Blattnamen, Blattrahmen und Ra
 - „Meine Position“ nutzt das GPS des Geräts (nur über https, z. B. GitHub Pages)
 - Blattsuche nach Nummer oder Name, Stapelverarbeitung mehrerer Punkte, CSV-Export
 - Feld „Für das Messprotokoll“ passend zum Formular Baustelleninfos (B14 TK Karte, B15 Longitude/Ost, B16 Latitude/Nord);: TK25-Nummer, Name, Rechts-/Hochwert (ETRS89/UTM 32/33, DHDN/Gauß-Krüger 2–5), Koordinatensystem und WGS84-Breite/-Länge einzeln kopierbar
+- Rechts-/Hochwert (Gauß-Krüger 2–5, UTM 32/33) eingeben oder einfügen, z. B. aus alten Messplots → WGS84 und TK-Blatt
 - Adresssuche über OpenStreetMap (Nominatim), nur in Deutschland
 - Koordinaten per Adresse übergeben: `?c=52.6256,10.0817`
 
