@@ -276,8 +276,8 @@ footer p { margin: 0; max-width: 70ch; }
     <form class="field" id="rwform">
       <label for="rwin">Oder Rechts-/Hochwert eingeben (z. B. aus einem Messplot)</label>
       <div class="rwrow">
-        <input type="text" id="rwin" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Rechtswert, z. B. 34 12 520" aria-label="Rechtswert">
-        <input type="text" id="hwin" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Hochwert, z. B. 59 42 705" aria-label="Hochwert">
+        <input type="text" id="rwin" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Rechtswert" aria-label="Rechtswert">
+        <input type="text" id="hwin" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Hochwert" aria-label="Hochwert">
         <select id="sysin" aria-label="Koordinatensystem der Eingabe">
           <option value="auto">System automatisch</option>
           <option value="gk2">Gauß-Krüger 2</option><option value="gk3">Gauß-Krüger 3</option>
@@ -286,7 +286,7 @@ footer p { margin: 0; max-width: 70ch; }
         </select>
         <button type="submit" class="btn">Umrechnen</button>
       </div>
-      <p class="hint" id="rwmsg">Leerzeichen sind erlaubt. „Automatisch“ erkennt Gauß-Krüger an der ersten Ziffer (3… = Zone 3) und UTM an 6 Stellen oder der Zone 32/33 vorn.</p>
+      <p class="hint" id="rwmsg">Zum Beispiel 34 12 520 und 59 42 705, Leerzeichen sind erlaubt. „Automatisch“ erkennt Gauß-Krüger an der ersten Ziffer (3… = Zone 3) und UTM an 6 Stellen oder der Zone 32/33 vorn.</p>
     </form>
     <p class="error" id="err" hidden></p>
     <div class="gpshelp" id="gpshelp" hidden>
@@ -297,35 +297,6 @@ footer p { margin: 0; max-width: 70ch; }
         <li><b>Google Maps:</b> lange auf die Stelle drücken (z. B. den blauen Punkt), bis eine rote Stecknadel erscheint. Unten öffnet sich „Markierte Stelle“: nach oben wischen und die Zeile mit den Zahlen (z. B. <span style="font-family:var(--font-data)">54.95669, 8.34212</span>) antippen. Sie werden kopiert, dann oben einfügen.</li>
       </ol>
       <button type="button" class="btn" id="gpsclose">Schließen</button>
-    </div>
-  </section>
-
-  <section class="result" id="result" aria-live="polite">
-    <div class="ident">
-      <div class="sheetno"><span class="no" id="no">–</span><span class="name" id="name"></span></div>
-      <p class="altn" id="alt" hidden></p>
-      <p class="pill warn" id="chk" hidden></p>
-      <dl class="facts">
-        <dt>Breite</dt><dd id="lat">–</dd>
-        <dt>Länge</dt><dd id="lon">–</dd>
-        <dt>Blattrahmen N–S</dt><dd id="fns">–</dd>
-        <dt>Blattrahmen W–O</dt><dd id="fwo">–</dd>
-      </dl>
-      <div>
-        <h2 style="margin-bottom:6px">Abstand zum Blattrand</h2>
-        <div class="dist">
-          <div id="dN"><span>Nord</span><b>–</b></div>
-          <div id="dS"><span>Süd</span><b>–</b></div>
-          <div id="dW"><span>West</span><b>–</b></div>
-          <div id="dO"><span>Ost</span><b>–</b></div>
-        </div>
-      </div>
-      <div class="status" id="status"></div>
-    </div>
-    <div>
-      <h2 style="margin-bottom:6px">Lage im Blattschnitt</h2>
-      <div class="grid9" id="grid9"></div>
-      <p class="legend">Roter Rahmen: ermitteltes Blatt. Orange: Nachbarblatt innerhalb des Randpuffers. Punkt maßstäblich im Blatt.</p>
     </div>
   </section>
 
@@ -388,6 +359,36 @@ footer p { margin: 0; max-width: 70ch; }
     </div>
     <p class="hint" id="crsnote"></p>
   </section>
+
+  <section class="result" id="result" aria-live="polite">
+    <div class="ident">
+      <div class="sheetno"><span class="no" id="no">–</span><span class="name" id="name"></span></div>
+      <p class="altn" id="alt" hidden></p>
+      <p class="pill warn" id="chk" hidden></p>
+      <dl class="facts">
+        <dt>Breite</dt><dd id="lat">–</dd>
+        <dt>Länge</dt><dd id="lon">–</dd>
+        <dt>Blattrahmen N–S</dt><dd id="fns">–</dd>
+        <dt>Blattrahmen W–O</dt><dd id="fwo">–</dd>
+      </dl>
+      <div>
+        <h2 style="margin-bottom:6px">Abstand zum Blattrand</h2>
+        <div class="dist">
+          <div id="dN"><span>Nord</span><b>–</b></div>
+          <div id="dS"><span>Süd</span><b>–</b></div>
+          <div id="dW"><span>West</span><b>–</b></div>
+          <div id="dO"><span>Ost</span><b>–</b></div>
+        </div>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+    <div>
+      <h2 style="margin-bottom:6px">Lage im Blattschnitt</h2>
+      <div class="grid9" id="grid9"></div>
+      <p class="legend">Roter Rahmen: ermitteltes Blatt. Orange: Nachbarblatt innerhalb des Randpuffers. Punkt maßstäblich im Blatt.</p>
+    </div>
+  </section>
+
 
   <section class="batch" aria-label="Blatt suchen">
     <h2>Blatt suchen</h2>
@@ -985,7 +986,7 @@ $("rwform").addEventListener("submit", ev => {
   $("rwmsg").className = "hint rwok";
   $("rwmsg").textContent = "Umgerechnet aus " + r.label + " → WGS84 " + r.lat.toFixed(6) + ", " + r.lon.toFixed(6) +
     (r.key.startsWith("gk") ? " (Gauß-Krüger: Genauigkeit der Umrechnung etwa 1–3 m)" : "");
-  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("proto").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 $("list").addEventListener("input", renderBatch);
 $("copy").addEventListener("click", () => copy(resultText(), "toast", $("coord")));
@@ -1110,7 +1111,7 @@ async function addrSearch(ev) {
         const lb = document.createElement("b"); lb.textContent = short(h, h.display_name);
         const acc = h.addresstype === "building" || (h.address && h.address.house_number) ? "Hausadresse" : "Ortsmitte bzw. Mitte des Treffers – für Bohrpunkte genauer mit Koordinaten arbeiten";
         $("addrsel").append("Gewählt: ", lb, " · " + acc);
-        $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+        $("proto").scrollIntoView({ behavior: "smooth", block: "start" });
       });
       li.append(b); list.append(li);
     });
