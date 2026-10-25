@@ -187,6 +187,19 @@ tr:last-child td { border-bottom: 0; }
 .addrsel { margin: 0; font-size: .88rem; color: var(--muted); }
 .addrsel b { color: var(--ink); font-weight: 600; }
 .osm { color: var(--muted); }
+.fmtrow { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.mpcard { border: 1.5px solid var(--ink); background: var(--surface); padding: 14px 16px 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 22px; }
+@media (max-width: 640px) { .mpcard { grid-template-columns: 1fr; } }
+.mpline { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: end; gap: 10px; }
+.mpline.wide { grid-column: 1 / -1; }
+.mpl { font-family: var(--font-body); font-style: italic; color: var(--ink); white-space: nowrap; padding-bottom: 4px; }
+.mpv { font-family: var(--font-body); font-weight: 700; font-size: 1.12rem; border-bottom: 1px solid var(--ink); padding: 0 4px 2px; min-height: 1.6em; overflow-wrap: break-word; min-width: 0; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .mpline.wide { grid-template-columns: 1fr auto; } .mpline.wide .mpl { grid-column: 1 / -1; padding: 0; } .mpcard .mpline.wide .mpv { grid-column: 1; grid-row: 2; } .mpcard .mpline.wide .cp { grid-column: 2; grid-row: 2; } }
+.mpu { font-style: italic; padding-bottom: 4px; }
+.mpline .cp { grid-column: -2 / -1; grid-row: auto; align-self: end; min-width: 0; padding: 5px 10px; font-size: .8rem; }
+.mpline:not(:has(.mpu)) .mpv { grid-column: 2 / span 2; }
+.mpsys { grid-column: 1 / -1; margin: 2px 0 0; font-size: .8rem; color: var(--muted); }
+#elevwrap { grid-column: 1 / -1; padding: 0; font-size: .82rem; color: var(--muted); }
 .proto { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; display: grid; gap: 14px; }
 .protohead { display: grid; gap: 10px; }
 .protoopts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; }
@@ -318,7 +331,13 @@ footer p { margin: 0; max-width: 70ch; }
 
   <section class="proto" id="proto" aria-label="Für das Messprotokoll">
     <div class="protohead">
-      <h2>Für das Messprotokoll</h2>
+      <div class="fmtrow">
+        <h2>Ausgabe</h2>
+        <div class="seg" role="group" aria-label="Ausgabeformat">
+          <button type="button" data-fmt="mp" id="fmt_mp">Messplot-Kopf</button>
+          <button type="button" data-fmt="bsi" id="fmt_bsi">Baustelleninfos</button>
+        </div>
+      </div>
       <div class="protoopts">
         <label class="opt" for="crs">Koordinatensystem
           <select id="crs">
@@ -343,7 +362,15 @@ footer p { margin: 0; max-width: 70ch; }
         <label class="chk" for="dcomma"><input type="checkbox" id="dcomma"> Dezimalkomma</label>
       </div>
     </div>
-    <div class="protogrid">
+    <div class="mpcard" id="mpcard">
+      <div class="mpline wide"><span class="mpl">Topogr. Karte:</span><output class="mpv" id="m_tk"></output><button type="button" class="cp" data-c="m_tk">Kopieren</button></div>
+      <div class="mpline"><span class="mpl" id="ml_rw">Rechtswert:</span><output class="mpv" id="m_rw"></output><button type="button" class="cp" data-c="m_rw">Kopieren</button></div>
+      <div class="mpline"><span class="mpl" id="ml_hw">Hochwert:</span><output class="mpv" id="m_hw"></output><button type="button" class="cp" data-c="m_hw">Kopieren</button></div>
+      <div class="mpline"><span class="mpl">Höhe ü. NN</span><output class="mpv" id="m_nn"></output><span class="mpu">m</span><button type="button" class="cp" data-c="m_nn">Kopieren</button></div>
+      <p class="mpsys" id="m_sys"></p>
+      <label class="chk" for="elev" id="elevwrap" hidden><input type="checkbox" id="elev"> Höhe ü. NN online abfragen (Open-Meteo, Geländemodell ca. 90 m Raster; die Koordinaten werden dafür übertragen)</label>
+    </div>
+    <div class="protogrid" id="bsigrid">
       <div class="pf wide"><span class="pl">TK Karte <small>(B14)</small></span><output id="v_tkk" class="pv"></output><button type="button" class="cp" data-c="v_tkk">Kopieren</button></div>
       <div class="pf"><span class="pl"><span id="l_rw">Longitude / Rechtswert / Ost</span> <small>(B15)</small></span><output id="v_rw" class="pv"></output><button type="button" class="cp" data-c="v_rw">Kopieren</button></div>
       <div class="pf"><span class="pl"><span id="l_hw">Latitude / Hochwert / Nord</span> <small>(B16)</small></span><output id="v_hw" class="pv"></output><button type="button" class="cp" data-c="v_hw">Kopieren</button></div>
@@ -354,6 +381,7 @@ footer p { margin: 0; max-width: 70ch; }
       <div class="pf" id="r_lat"><span class="pl">WGS84 Latitude (N)</span><output id="v_lat" class="pv"></output><button type="button" class="cp" data-c="v_lat">Kopieren</button></div>
     </div>
     <div class="row">
+      <button type="button" class="btn primary" id="cpmp">Kopfdaten kopieren</button>
       <button type="button" class="btn primary" id="cpbsi">B14–B16 kopieren (TK Karte, Ost, Nord)</button>
       <button type="button" class="btn" id="cpall">Alle als Tabellenzeile kopieren</button>
       <span class="toast" id="toast3" aria-live="polite"></span>
@@ -418,7 +446,7 @@ Beispiel Lübeck; 53.8655, 10.6866</textarea>
 
   <footer>
     <p>Blattnamen nach der tegeo-Liste „Baustelleninfos“ (2.980 Blätter), ergänzt aus den Blattübersichten der Länder. Bei Grenzblättern gilt der Name aus der Übersicht, in der das Blatt im eigenen Gebiet liegt; abweichende Namen der Nachbarländer stehen unter „Auch“.</p>
-    <p id="osmnote" hidden>Adresssuche: Nominatim, Daten © OpenStreetMap-Mitwirkende (ODbL). Nur die eingegebene Adresse wird übertragen, Koordinaten und Ergebnisse bleiben im Browser.</p>
+    <p id="osmnote" hidden>Adresssuche: Nominatim, Daten © OpenStreetMap-Mitwirkende (ODbL). Nur die eingegebene Adresse wird übertragen. Höhe ü. NN: Open-Meteo (Copernicus-Geländemodell), nur wenn eingeschaltet; dafür werden die Koordinaten übertragen. Alles andere bleibt im Browser.</p>
     <p>Berechnung: Zeile 01 beginnt an der Nordkante 55°54′ N, Spalte 01 an der Westkante 5°50′ E. Abstände auf dem Ellipsoid GRS80/WGS84.</p>
     <p>Ältere TK25-Ausgaben sind im System DHDN (Potsdam-Datum) gerahmt. Gegenüber WGS84 verschiebt sich der Blattrand dann um rund 100 m. Für solche Blätter den Puffer 200 m wählen.</p>
   </footer>
@@ -764,9 +792,21 @@ function unproject(rwTxt, hwTxt, mode) {
 }
 
 // --- Für das Messprotokoll ---
-const pref = { crs: "wgs", dec: "0", zpre: true, dcomma: false, wfmt: "dd", grp: true };
-try { Object.assign(pref, JSON.parse(localStorage.getItem("tk25-proto3") || "{}")); } catch (e) {}
-$("crs").value = pref.crs; $("dec").value = pref.dec; $("zpre").checked = pref.zpre; $("dcomma").checked = pref.dcomma; $("wfmt").value = pref.wfmt; $("grp").checked = pref.grp;
+// Jede Ausgabe merkt sich ihr eigenes Koordinatensystem
+const PREFS = {
+  fmt: "mp",
+  mp:  { crs: "gkauto", dec: "0", zpre: true, dcomma: false, wfmt: "dd", grp: true, elev: false },
+  bsi: { crs: "wgs",    dec: "0", zpre: true, dcomma: false, wfmt: "dd", grp: true, elev: false },
+};
+try { const s = JSON.parse(localStorage.getItem("tk25-proto4") || "{}"); if (s.fmt) PREFS.fmt = s.fmt; Object.assign(PREFS.mp, s.mp || {}); Object.assign(PREFS.bsi, s.bsi || {}); } catch (e) {}
+function loadFmt(f) {
+  PREFS.fmt = f; const p = PREFS[f];
+  $("crs").value = p.crs; $("dec").value = p.dec; $("zpre").checked = p.zpre; $("dcomma").checked = p.dcomma; $("wfmt").value = p.wfmt; $("grp").checked = p.grp; $("elev").checked = p.elev;
+  document.querySelectorAll("[data-fmt]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.fmt === f)));
+  $("mpcard").hidden = f !== "mp"; $("cpmp").hidden = f !== "mp";
+  $("bsigrid").hidden = f !== "bsi"; $("cpbsi").hidden = f !== "bsi";
+}
+loadFmt(PREFS.fmt);
 function fmtNum(v, d) {
   const s = v.toFixed(d);
   return $("dcomma").checked ? s.replace(".", ",") : s;
@@ -799,6 +839,13 @@ function wgsFor(lat, lon) {
 function renderProto() {
   if (!last) return;
   const c = coordsFor(last.lat, last.lon);
+  $("m_tk").textContent = (DB[last.blatt] && DB[last.blatt][3]) || last.blatt;
+  $("m_rw").textContent = c.rw; $("m_hw").textContent = c.hw;
+  $("ml_rw").textContent = c.key === "wgs" ? "Longitude:" : "Rechtswert:";
+  $("ml_hw").textContent = c.key === "wgs" ? "Latitude:" : "Hochwert:";
+  $("m_sys").textContent = "Koordinatensystem: " + c.crs;
+  $("elevwrap").hidden = !STANDALONE;
+  showElev();
   $("v_tkk").textContent = (DB[last.blatt] && DB[last.blatt][3]) || last.blatt;
   $("v_nr").textContent = last.blatt;
   $("v_name").textContent = nm(last.blatt) || "–";
@@ -816,10 +863,32 @@ function renderProto() {
     : "ETRS89 und WGS84 werden gleichgesetzt; der Unterschied liegt heute unter einem Meter und damit unter der Handy-GPS-Genauigkeit.";
 }
 function savePref() {
-  try { localStorage.setItem("tk25-proto3", JSON.stringify({ crs: $("crs").value, dec: $("dec").value, zpre: $("zpre").checked, dcomma: $("dcomma").checked, wfmt: $("wfmt").value, grp: $("grp").checked })); } catch (e) {}
+  PREFS[PREFS.fmt] = { crs: $("crs").value, dec: $("dec").value, zpre: $("zpre").checked, dcomma: $("dcomma").checked, wfmt: $("wfmt").value, grp: $("grp").checked, elev: $("elev").checked };
+  try { localStorage.setItem("tk25-proto4", JSON.stringify(PREFS)); } catch (e) {}
   renderProto(); renderBatch();
 }
-["crs", "dec", "zpre", "dcomma", "wfmt", "grp"].forEach(id => $(id).addEventListener("change", savePref));
+["crs", "dec", "zpre", "dcomma", "wfmt", "grp", "elev"].forEach(id => $(id).addEventListener("change", savePref));
+document.querySelectorAll("[data-fmt]").forEach(b => b.addEventListener("click", () => { loadFmt(b.dataset.fmt); savePref(); }));
+
+// --- Höhe ü. NN (nur eigenständige Fassung, nur auf Wunsch) ---
+const elevCache = new Map(); let elevTimer = null, elevKey = "";
+function showElev() {
+  if (!last) return;
+  if (!STANDALONE) { $("m_nn").textContent = ""; return; }
+  if (!$("elev").checked) { $("m_nn").textContent = ""; return; }
+  const k = last.lat.toFixed(5) + "," + last.lon.toFixed(5);
+  if (elevCache.has(k)) { const v = elevCache.get(k); $("m_nn").textContent = v == null ? "–" : "ca. " + fmtNum(v, 0); return; }
+  $("m_nn").textContent = "…"; elevKey = k;
+  clearTimeout(elevTimer);
+  elevTimer = setTimeout(async () => {
+    try {
+      const r = await fetch("https://api.open-meteo.com/v1/elevation?latitude=" + last.lat.toFixed(5) + "&longitude=" + last.lon.toFixed(5));
+      const j = await r.json(); const v = j && j.elevation && isFinite(j.elevation[0]) ? Math.round(j.elevation[0]) : null;
+      elevCache.set(k, v);
+    } catch (e) { elevCache.set(k, null); }
+    if (elevKey === k) showElev();
+  }, 600);
+}
 async function copyField(text, btn) {
   let ok = false;
   try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
@@ -836,6 +905,14 @@ async function copyField(text, btn) {
   return ok;
 }
 document.querySelectorAll(".cp").forEach(b => b.addEventListener("click", () => copyField($(b.dataset.c).textContent, b)));
+$("cpmp").addEventListener("click", async () => {
+  const nn = $("m_nn").textContent.trim();
+  const txt = ["Topogr. Karte: " + $("m_tk").textContent, $("ml_rw").textContent + " " + $("m_rw").textContent,
+               $("ml_hw").textContent + " " + $("m_hw").textContent].concat(nn && nn !== "…" && nn !== "–" ? ["Höhe ü. NN: " + nn + " m"] : []).join("\n");
+  const ok = await copyField(txt, null);
+  $("toast3").textContent = ok ? "Kopfdaten kopiert" : "Kopieren nicht erlaubt";
+  setTimeout(() => { $("toast3").textContent = ""; }, 3000);
+});
 $("cpbsi").addEventListener("click", async () => {
   const ok = await copyField(["v_tkk", "v_rw", "v_hw"].map(id => $(id).textContent).join("\n"), null);
   $("toast3").textContent = ok ? "Kopiert – in Baustelleninfos Zelle B14 anklicken und einfügen (füllt B14 bis B16)" : "Kopieren nicht erlaubt";
