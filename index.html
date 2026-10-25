@@ -172,6 +172,17 @@ tr:last-child td { border-bottom: 0; }
 .pill.ok { color: var(--ok); border: 1px solid var(--ok); }
 .pill.warn { color: var(--warn); border: 1px solid var(--warn); background: var(--warn-bg); }
 .pill.err { color: var(--frame); border: 1px solid var(--frame); }
+.addrrow { display: flex; gap: 8px; }
+.addrrow input { flex: 1; }
+.addrlist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
+.addrlist li + li { border-top: 1px solid var(--rule); }
+.addrlist button { all: unset; box-sizing: border-box; display: grid; gap: 1px; width: 100%; padding: 8px 12px; cursor: pointer; }
+.addrlist button:hover, .addrlist button:focus-visible { background: var(--sheet); outline: none; }
+.addrlist b { font-weight: 600; }
+.addrlist span { color: var(--muted); font-size: .82rem; }
+.addrsel { margin: 0; font-size: .88rem; color: var(--muted); }
+.addrsel b { color: var(--ink); font-weight: 600; }
+.osm { color: var(--muted); }
 .gpshelp { border-left: 4px solid var(--water); background: var(--paper); padding: 10px 14px; display: grid; gap: 6px; font-size: .9rem; }
 .gpshelp p, .gpshelp ol { margin: 0; }
 .gpshelp ol { padding-left: 20px; display: grid; gap: 4px; }
@@ -205,6 +216,16 @@ footer p { margin: 0; max-width: 70ch; }
              value="54.95669257253787, 8.342125172228702">
       <p class="hint">Direkt aus Google Maps einfügen (Breite, Länge). Auch möglich: <span style="font-family:var(--font-data)">54,9567 8,3421</span> oder <span style="font-family:var(--font-data)">54°57′24.1″N 8°20′31.7″E</span></p>
     </div>
+    <form class="field" id="addrform" hidden>
+      <label for="addr">Oder Adresse / Ort suchen</label>
+      <div class="addrrow">
+        <input type="text" id="addr" autocomplete="street-address" spellcheck="false" placeholder="z. B. Bruchkampweg 28a, Celle" enterkeyhint="search">
+        <button type="submit" class="btn" id="addrgo">Suchen</button>
+      </div>
+      <p class="hint" id="addrmsg">Sucht in Deutschland über OpenStreetMap. Die eingegebene Adresse wird dafür an den Nominatim-Dienst gesendet.</p>
+      <ul class="addrlist" id="addrlist" hidden></ul>
+      <p class="addrsel" id="addrsel" hidden></p>
+    </form>
     <div class="row">
       <span style="font-weight:600;font-size:.9rem">Randpuffer</span>
       <div class="seg" role="group" aria-label="Randpuffer">
@@ -315,6 +336,7 @@ Beispiel Lübeck; 53.8655, 10.6866</textarea>
 
   <footer>
     <p>Blattnamen aus den Blattübersichten der Länder (13 Vorlagen). Bei Grenzblättern gilt der Name aus der Übersicht, in der das Blatt im eigenen Gebiet liegt; abweichende Namen der Nachbarländer stehen unter „Auch“.</p>
+    <p id="osmnote" hidden>Adresssuche: Nominatim, Daten © OpenStreetMap-Mitwirkende (ODbL). Nur die eingegebene Adresse wird übertragen, Koordinaten und Ergebnisse bleiben im Browser.</p>
     <p>Berechnung: Zeile 01 beginnt an der Nordkante 55°54′ N, Spalte 01 an der Westkante 5°50′ E. Abstände auf dem Ellipsoid GRS80/WGS84.</p>
     <p>Ältere TK25-Ausgaben sind im System DHDN (Potsdam-Datum) gerahmt. Gegenüber WGS84 verschiebt sich der Blattrand dann um rund 100 m. Für solche Blätter den Puffer 200 m wählen.</p>
   </footer>
@@ -633,7 +655,63 @@ function dbCsv() {
   }
   return out.join("\n");
 }
+// --- Adresssuche (OpenStreetMap Nominatim) ---
+let lastQuery = 0;
+function short(a, fallback) {
+  const ad = a.address || {};
+  const street = [ad.road || ad.pedestrian || ad.footway || ad.path, ad.house_number].filter(Boolean).join(" ");
+  const place = ad.city || ad.town || ad.village || ad.hamlet || ad.municipality || ad.suburb || "";
+  const head = [street, [ad.postcode, place].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return head || a.name || fallback.split(",")[0];
+}
+async function addrSearch(ev) {
+  ev.preventDefault();
+  const q = $("addr").value.trim(), list = $("addrlist"), msg = $("addrmsg");
+  if (q.length < 3) { msg.textContent = "Bitte mindestens drei Zeichen eingeben."; return; }
+  const wait = 1100 - (Date.now() - lastQuery);              // Nutzungsregel: höchstens 1 Anfrage pro Sekunde
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastQuery = Date.now();
+  $("addrgo").disabled = true; msg.textContent = "Suche läuft …"; list.hidden = true; list.replaceChildren();
+  try {
+    const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=de&accept-language=de&q=" + encodeURIComponent(q);
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const hits = await res.json();
+    if (!hits.length) { msg.textContent = "Keine Adresse gefunden. Versuche es mit Straße, Hausnummer und Ort, z. B. „Bruchkampweg 28a, Celle“."; return; }
+    msg.innerHTML = 'Treffer antippen, um das Blatt zu bestimmen. Daten <span class="osm">© OpenStreetMap-Mitwirkende</span>.';
+    hits.forEach(h => {
+      const li = document.createElement("li"), b = document.createElement("button");
+      b.type = "button";
+      const t1 = document.createElement("b"); t1.textContent = short(h, h.display_name);
+      const t2 = document.createElement("span"); t2.textContent = h.display_name;
+      b.append(t1, t2);
+      b.addEventListener("click", () => {
+        const lat = (+h.lat).toFixed(7), lon = (+h.lon).toFixed(7);
+        $("coord").value = lat + ", " + lon; render();
+        list.hidden = true;
+        $("addrsel").hidden = false;
+        $("addrsel").replaceChildren();
+        const lb = document.createElement("b"); lb.textContent = short(h, h.display_name);
+        const acc = h.addresstype === "building" || (h.address && h.address.house_number) ? "Hausadresse" : "Ortsmitte bzw. Mitte des Treffers – für Bohrpunkte genauer mit Koordinaten arbeiten";
+        $("addrsel").append("Gewählt: ", lb, " · " + acc);
+        $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      li.append(b); list.append(li);
+    });
+    list.hidden = false;
+  } catch (e) {
+    msg.textContent = navigator.onLine === false
+      ? "Keine Internetverbindung. Die Adresssuche braucht Internet, die Koordinateneingabe funktioniert auch offline."
+      : "Adresssuche gerade nicht erreichbar. Bitte später erneut versuchen oder Koordinaten einfügen.";
+  } finally {
+    $("addrgo").disabled = false;
+  }
+}
+
 if (STANDALONE) {
+  $("addrform").hidden = false; $("osmnote").hidden = false;
+  $("addrform").addEventListener("submit", addrSearch);
+  $("coord").addEventListener("input", () => { $("addrsel").hidden = true; });
   $("dlcsv").hidden = false; $("dldb").hidden = false;
   $("dlcsv").addEventListener("click", () => save("tk25_punkte.csv", csv));
   $("dldb").addEventListener("click", () => save("tk25_blaetter.csv", dbCsv()));
