@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TK25-Blattfinder</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TK25">
+<meta name="theme-color" content="#1f2a22">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: Kartenblatt-Ästhetik — Eingabe oben, Ergebnis als Blattrahmen mit 3×3-Nachbarschaft, darunter Stapelverarbeitung */
+:root {
+  --paper: #f3f5ee;        /* Kartenpapier, leicht grünstichig */
+  --sheet: #e2ecd6;        /* Blattfläche wie in der Übersicht */
+  --ink: #1f2a22;          /* Schrift */
+  --muted: #5d6b60;        /* Nebentext */
+  --rule: #b9c6b4;         /* Blattgrenzen */
+  --frame: #c8252c;        /* roter Blattrahmen */
+  --water: #2f6fa3;        /* Akzent / Links / Fokus */
+  --warn: #c77a12;         /* Randwarnung */
+  --warn-bg: #fbecd2;
+  --ok: #2f7a45;
+  --surface: #ffffff;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #141a16; --sheet: #1f2b22; --ink: #e4ebe2; --muted: #9aa99d;
+    --rule: #3a4a3e; --frame: #ef5a5f; --water: #6aa9dc; --warn: #f0a640;
+    --warn-bg: #3a2c14; --ok: #6cc286; --surface: #1a221c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #141a16; --sheet: #1f2b22; --ink: #e4ebe2; --muted: #9aa99d;
+  --rule: #3a4a3e; --frame: #ef5a5f; --water: #6aa9dc; --warn: #f0a640;
+  --warn-bg: #3a2c14; --ok: #6cc286; --surface: #1a221c; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+}
+.wrap {
+  max-width: 860px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+  display: grid; gap: 22px;
+}
+header { display: grid; gap: 2px; }
+h1 {
+  font-family: var(--font-display); font-weight: 700; font-size: 2rem;
+  letter-spacing: .01em; margin: 0; line-height: 1.1; text-wrap: balance;
+}
+.sub { color: var(--muted); margin: 0; font-size: .92rem; }
+h2 {
+  font-family: var(--font-display); font-weight: 600; font-size: 1.05rem;
+  text-transform: uppercase; letter-spacing: .08em; margin: 0; color: var(--muted);
+}
+
+/* Eingabe */
+.input {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 16px; display: grid; gap: 14px;
+}
+label { font-weight: 600; font-size: .9rem; }
+.field { display: grid; gap: 6px; }
+input[type="text"], textarea {
+  font-family: var(--font-data); font-size: 15px; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 10px 12px; width: 100%; min-width: 0;
+}
+textarea { resize: vertical; min-height: 120px; line-height: 1.6; }
+input:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: 2px solid var(--water); outline-offset: 2px;
+}
+.hint { color: var(--muted); font-size: .82rem; margin: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+.seg button {
+  font: 500 .9rem var(--font-data); background: var(--paper); color: var(--ink);
+  border: 0; padding: 7px 12px; cursor: pointer; border-right: 1px solid var(--rule);
+}
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.btn {
+  font: 600 .9rem var(--font-body); background: var(--surface); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 7px 12px; cursor: pointer;
+}
+.btn:hover { border-color: var(--ink); }
+.error {
+  color: var(--frame); font-size: .9rem; margin: 0; font-weight: 500;
+}
+
+/* Ergebnis */
+.result { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 680px) { .result { grid-template-columns: 1fr; } }
+.ident { display: grid; gap: 12px; }
+.sheetno {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  border: 3px solid var(--frame); background: var(--sheet); padding: 12px 16px;
+}
+.sheetno .no {
+  font-family: var(--font-display); font-weight: 700; font-size: 3.2rem; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: .02em;
+}
+.sheetno .name { font-family: var(--font-display); font-weight: 600; font-size: 1.35rem; line-height: 1.15; }
+.sheetno .name.unknown { color: var(--muted); font-weight: 500; font-size: 1rem; }
+dl.facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; margin: 0; }
+dl.facts dt { color: var(--muted); font-size: .85rem; padding-top: 2px; }
+dl.facts dd { margin: 0; font-family: var(--font-data); font-size: .92rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.status {
+  border-left: 4px solid var(--ok); padding: 8px 12px; background: var(--surface);
+  font-size: .92rem; display: grid; gap: 4px;
+}
+.status.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+.status strong { font-weight: 600; }
+.status ul { margin: 0; padding-left: 18px; }
+
+.dist { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.dist div {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 6px 8px; display: grid; gap: 0;
+}
+.dist div.near { border-color: var(--warn); background: var(--warn-bg); }
+.dist span { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.dist b { font-family: var(--font-data); font-weight: 500; font-variant-numeric: tabular-nums; font-size: .95rem; }
+
+/* 3×3 Nachbarschaft */
+.grid9 {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0;
+  border: 1px solid var(--rule); background: var(--rule);
+}
+.cell {
+  background: var(--sheet); outline: 1px solid var(--rule);
+  padding: 6px; display: grid; align-content: start; gap: 1px; position: relative;
+  min-width: 0; text-align: center;
+}
+.cell .cn { font-family: var(--font-display); font-weight: 600; font-size: .95rem; font-variant-numeric: tabular-nums; }
+.cell .cname { font-size: .72rem; line-height: 1.2; color: var(--muted); overflow-wrap: anywhere; }
+.cell.none { background: var(--paper); }
+.cell.none .cn { color: var(--muted); font-weight: 500; }
+.cell.center { outline: 3px solid var(--frame); outline-offset: -3px; z-index: 1; }
+.cell.flag { background: var(--warn-bg); }
+.cell.flag .cn { color: var(--warn); }
+.pt {
+  position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  border-radius: 50%; background: var(--frame); border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--frame);
+}
+.legend { color: var(--muted); font-size: .8rem; margin: 6px 0 0; }
+
+/* Stapel */
+.batch { display: grid; gap: 12px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font-family: var(--font-display); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; font-size: .8rem; color: var(--muted); }
+td.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: 0; }
+.pill { display: inline-block; font-size: .78rem; padding: 1px 8px; border-radius: 99px; font-weight: 600; }
+.pill.ok { color: var(--ok); border: 1px solid var(--ok); }
+.pill.warn { color: var(--warn); border: 1px solid var(--warn); background: var(--warn-bg); }
+.pill.err { color: var(--frame); border: 1px solid var(--frame); }
+.gpshelp { border-left: 4px solid var(--water); background: var(--paper); padding: 10px 14px; display: grid; gap: 6px; font-size: .9rem; }
+.gpshelp p, .gpshelp ol { margin: 0; }
+.gpshelp ol { padding-left: 20px; display: grid; gap: 4px; }
+.gpshelp .btn { justify-self: start; }
+.altn { margin: 0; color: var(--muted); font-size: .88rem; }
+p.pill { justify-self: start; margin: 0; }
+.go { font: 600 .82rem var(--font-body); background: none; border: 1px solid var(--rule); border-radius: 4px; color: var(--water); padding: 3px 8px; cursor: pointer; }
+.go:hover { border-color: var(--water); }
+.toast { font-size: .85rem; color: var(--ok); min-height: 1.2em; }
+
+footer { color: var(--muted); font-size: .8rem; display: grid; gap: 4px; }
+footer p { margin: 0; max-width: 70ch; }
+@media (prefers-reduced-motion: no-preference) {
+  .pt { transition: left .2s, top .2s; }
+}
+</style>
+<style>body{margin:0;font-size:15px}[hidden]{display:none!important}</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>TK25-Blattfinder</h1>
+    <p class="sub">Topographische Karte 1 : 25 000 · Blattschnitt 10′ × 6′ · 2.954 Blätter mit Namen, bundesweit</p>
+  </header>
+
+  <section class="input" aria-label="Eingabe">
+    <div class="field">
+      <label for="coord">Koordinaten (WGS84)</label>
+      <input type="text" id="coord" inputmode="text" autocomplete="off" spellcheck="false"
+             value="54.95669257253787, 8.342125172228702">
+      <p class="hint">Direkt aus Google Maps einfügen (Breite, Länge). Auch möglich: <span style="font-family:var(--font-data)">54,9567 8,3421</span> oder <span style="font-family:var(--font-data)">54°57′24.1″N 8°20′31.7″E</span></p>
+    </div>
+    <div class="row">
+      <span style="font-weight:600;font-size:.9rem">Randpuffer</span>
+      <div class="seg" role="group" aria-label="Randpuffer">
+        <button type="button" data-p="100" id="p100">100 m</button>
+        <button type="button" data-p="200" id="p200">200 m</button>
+        <button type="button" data-p="500" id="p500">500 m</button>
+      </div>
+      <button type="button" class="btn" id="gps" hidden>Meine Position</button>
+      <button type="button" class="btn" id="copy">Ergebnis kopieren</button>
+      <span class="toast" id="toast" aria-live="polite"></span>
+    </div>
+    <p class="error" id="err" hidden></p>
+    <div class="gpshelp" id="gpshelp" hidden>
+      <strong>Koordinaten vom Handy übernehmen</strong>
+      <p>Der Teilen-Link aus Google Maps (maps.app.goo.gl/…) enthält keine Koordinaten. Kopiere stattdessen die Zahlen selbst. Den GPS-Standort direkt abfragen kann die Seite nur, wenn sie über eine sichere Webadresse (https) geöffnet wird, nicht als Datei aus iCloud Drive.</p>
+      <ol>
+        <li><b>Apple Karten:</b> auf den blauen Standortpunkt tippen, nach unten wischen, auf die Koordinaten tippen und „Kopieren“ wählen. Dann oben einfügen.</li>
+        <li><b>Google Maps:</b> lange auf die Stelle drücken (z. B. den blauen Punkt), bis eine rote Stecknadel erscheint. Unten öffnet sich „Markierte Stelle“: nach oben wischen und die Zeile mit den Zahlen (z. B. <span style="font-family:var(--font-data)">54.95669, 8.34212</span>) antippen. Sie werden kopiert, dann oben einfügen.</li>
+      </ol>
+      <button type="button" class="btn" id="gpsclose">Schließen</button>
+    </div>
+  </section>
+
+  <section class="result" id="result" aria-live="polite">
+    <div class="ident">
+      <div class="sheetno"><span class="no" id="no">–</span><span class="name" id="name"></span></div>
+      <p class="altn" id="alt" hidden></p>
+      <p class="pill warn" id="chk" hidden></p>
+      <dl class="facts">
+        <dt>Breite</dt><dd id="lat">–</dd>
+        <dt>Länge</dt><dd id="lon">–</dd>
+        <dt>Blattrahmen N–S</dt><dd id="fns">–</dd>
+        <dt>Blattrahmen W–O</dt><dd id="fwo">–</dd>
+      </dl>
+      <div>
+        <h2 style="margin-bottom:6px">Abstand zum Blattrand</h2>
+        <div class="dist">
+          <div id="dN"><span>Nord</span><b>–</b></div>
+          <div id="dS"><span>Süd</span><b>–</b></div>
+          <div id="dW"><span>West</span><b>–</b></div>
+          <div id="dO"><span>Ost</span><b>–</b></div>
+        </div>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+    <div>
+      <h2 style="margin-bottom:6px">Lage im Blattschnitt</h2>
+      <div class="grid9" id="grid9"></div>
+      <p class="legend">Roter Rahmen: ermitteltes Blatt. Orange: Nachbarblatt innerhalb des Randpuffers. Punkt maßstäblich im Blatt.</p>
+    </div>
+  </section>
+
+  <section class="batch" aria-label="Blatt suchen">
+    <h2>Blatt suchen</h2>
+    <div class="field">
+      <label for="q">Blattnummer oder Name</label>
+      <input type="text" id="q" autocomplete="off" spellcheck="false" value="Celle">
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Blatt</th><th>Name</th><th>Blattrahmen N–S</th><th>Blattrahmen W–O</th><th></th></tr></thead>
+        <tbody id="qbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="batch" aria-label="Mehrere Punkte">
+    <h2>Mehrere Punkte</h2>
+    <div class="field">
+      <label for="list">Ein Punkt pro Zeile: Bezeichnung; Koordinaten</label>
+      <textarea id="list" spellcheck="false">Beispiel Brunnen 1; 54.95669, 8.34213
+Beispiel Brunnen 2; 54.9003, 8.3340
+Beispiel Lübeck; 53.8655, 10.6866</textarea>
+      <p class="hint">Die drei Zeilen sind Beispiele. Ersetze sie durch Deine Bohrpunkte; die Tabelle rechnet sofort mit. Bezeichnung ist optional.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Bezeichnung</th><th>Blatt</th><th>Name</th><th>Breite</th><th>Länge</th><th>Rand</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="row">
+      <button type="button" class="btn" id="copycsv">Tabelle als CSV kopieren</button>
+      <button type="button" class="btn" id="dlcsv" hidden>CSV speichern</button>
+      <span class="toast" id="toast2" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section class="batch" aria-label="Prüfliste">
+    <h2>Prüfliste</h2>
+    <p class="hint">Blätter, bei denen ein Blick in die amtliche Übersicht lohnt.</p>
+    <div class="row">
+      <div class="seg" role="group" aria-label="Filter">
+        <button type="button" data-f="prüfen" id="f1">Unsicher gelesen</button>
+        <button type="button" data-f="ok (Namensvarianten)" id="f2">Zwei Namen</button>
+        <button type="button" data-f="nicht in BKG-Übersicht" id="f3">Nicht in BKG-Liste</button>
+      </div>
+      <span class="hint" id="fcount"></span>
+      <button type="button" class="btn" id="dldb" hidden>Gesamte Datenbank als CSV speichern</button>
+    </div>
+    <div class="tablewrap" style="max-height: 420px; overflow-y: auto;">
+      <table>
+        <thead><tr><th>Blatt</th><th>Name</th><th>Auch / Hinweis</th><th></th></tr></thead>
+        <tbody id="fbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <p>Blattnamen aus den Blattübersichten der Länder (13 Vorlagen). Bei Grenzblättern gilt der Name aus der Übersicht, in der das Blatt im eigenen Gebiet liegt; abweichende Namen der Nachbarländer stehen unter „Auch“.</p>
+    <p>Berechnung: Zeile 01 beginnt an der Nordkante 55°54′ N, Spalte 01 an der Westkante 5°50′ E. Abstände auf dem Ellipsoid GRS80/WGS84.</p>
+    <p>Ältere TK25-Ausgaben sind im System DHDN (Potsdam-Datum) gerahmt. Gegenüber WGS84 verschiebt sich der Blattrand dann um rund 100 m. Für solche Blätter den Puffer 200 m wählen.</p>
+  </footer>
+</div>
+
+<script>
+const DB = {"0916":["List (Insel Sylt)","","ok"],"1015":["Westerland (Insel Sylt)","","ok"],"1016":["Kampen (Insel Sylt)","","ok"],"1017":["Rodenäs","","ok"],"1018":["Hoyer","","ok"],"1019":["Tondern","","ok"],"1115":["Rantum (Insel Sylt)","","ok"],"1116":["Morsum (Insel Sylt)","","ok"],"1117":["Friedr-Wilh-Lübke-Koog","","ok"],"1118":["Neukirchen","","ok"],"1119":["Süderlügum","","ok"],"1120":["Ladelund","","ok"],"1121":["Medelby","","ok"],"1122":["Flensburg (Nord)","","ok"],"1123":["Glücksburg","","ok"],"1124":["Westerholz","","ok"],"1215":["Hörnum (Insel Sylt)","","ok"],"1216":["Borgsum","","ok"],"1217":["Midlum (Insel Föhr)","","ok"],"1218":["Niebüll","","ok"],"1219":["Leck","","ok"],"1220":["Achtrup","","ok"],"1221":["Wallsbüll","","ok"],"1222":["Flensburg (Süd)","","ok"],"1223":["Husby","","ok"],"1224":["Sterup","","ok"],"1225":["Gelting/Oehe","","ok"],"1315":["Kniepsand (Insel Amrum)","","ok"],"1316":["Nieblum (Insel Föhr)","","ok"],"1317":["Wyk (Insel Föhr)","","ok"],"1318":["Ockholm","","ok"],"1319":["Bredstedt","","ok"],"1320":["Drelsdorf","","ok"],"1321":["Jörl","","ok"],"1322":["Eggebek","","ok"],"1323":["Satrup","","ok"],"1324":["Süderbrarup","","ok"],"1325":["Kappeln","","ok"],"1326":["Schönhagen","","ok"],"1345":["Wiek","","ok"],"1346":["Altenkirchen","","ok"],"1417":["Pellworm","","ok"],"1418":["Nordstrandischmoor","","ok"],"1419":["Wobbenbüll","","ok"],"1420":["Hattstedt","","ok"],"1421":["Viöl","","ok"],"1422":["Jübek","","ok"],"1423":["Schleswig","","ok"],"1424":["Brodersby","","ok"],"1425":["Holzdorf","","ok"],"1426":["Dorotheental","","ok"],"1432":["Westermarkelsdorf","","ok"],"1433":["Puttgarden","","ok"],"1444":["Vitte","","ok"],"1445":["Trent","","ok"],"1446":["Glowe","","ok"],"1447":["Sassnitz","","ok"],"1517":["Süderoog","","ok"],"1518":["Südfall","","ok"],"1519":["Simonsberg","","ok"],"1520":["Husum","","ok"],"1521":["Ostenfeld (bei Husum)","","ok"],"1522":["Hollingstedt","","ok"],"1523":["Kropp","","ok"],"1524":["Hütten","","ok"],"1525":["Eckernförde","","ok"],"1526":["Dänischenhagen","","ok"],"1527":["Laboe","","ok"],"1528":["Wisch","","ok"],"1532":["Petersdorf (Insel Fehmarn)","","ok"],"1533":["Burg","","ok"],"1540":["Ibenhorst","","ok"],"1541":["Prerow","","ok"],"1542":["Zingst","","ok"],"1543":["Hohendorf","","ok"],"1544":["Klausdorf","","ok"],"1545":["Gingst","","ok"],"1546":["Bergen auf Rügen","","ok"],"1547":["Binz","","ok"],"1617":["St. Peter-Ording","","ok"],"1618":["Garding","","ok"],"1619":["Tönning","","ok"],"1620":["Friedrichstadt","","ok"],"1621":["Süderstapel","","ok"],"1622":["Meggerdorf","","ok"],"1623":["Owschlag","","ok"],"1624":["Rendsburg","","ok"],"1625":["Flemhude","","ok"],"1626":["Kiel","","ok"],"1627":["Heikendorf","","ok"],"1628":["Schönberg (in Holstein)","","ok"],"1629":["Giekau","","ok"],"1630":["Hohwacht","","ok"],"1631":["Heiligenhafen","","ok"],"1632":["Großenbrode","","ok"],"1640":["Wustrow","","ok"],"1641":["Born a. Darß","","ok"],"1642":["Barth","","ok"],"1643":["Niepars","","ok"],"1644":["Stralsund","","ok"],"1645":["Samtens","","ok"],"1646":["Putbus","","ok"],"1647":["Zirkow","","ok"],"1648":["Sellin","","ok"],"1717":["Böhl","","ok"],"1718":["Vollerwiek","","ok"],"1719":["Wesselburen","","ok"],"1720":["Weddingstedt","","ok"],"1721":["Tellingstedt","","ok"],"1722":["Dellstedt","","ok"],"1723":["Hamdorf (bei Rendsburg)","","ok"],"1724":["Bokelholm","","ok"],"1725":["Westensee","","ok"],"1726":["Flintbek","","ok"],"1727":["Preetz","","ok"],"1728":["Selent","","ok"],"1729":["Lütjenburg","","ok"],"1730":["Hansühn","","ok"],"1731":["Oldenburg (in Holstein)","","ok"],"1732":["Grube","","ok"],"1739":["Graal-Müritz","","ok"],"1740":["Ribnitz-Damgarten","","ok"],"1741":["Trinwillershagen","","ok"],"1742":["Velgast","","ok"],"1743":["Richtenberg","","ok"],"1744":["Stralsund S","","ok"],"1745":["Brandshagen","","ok"],"1746":["Zudar","","ok"],"1747":["Zickersches Höft","","ok"],"1748":["Thiessow","","ok"],"1749":["Greifswalder Oie","","ok"],"1813":["Helgoland","","ok"],"1818":["Blauort","","ok"],"1819":["Büsum","","ok"],"1820":["Heide","","ok"],"1821":["Nordhastedt","","ok"],"1822":["Hanerau-Hademarschen","","ok"],"1823":["Todenbüttel","","ok"],"1824":["Bargstedt","","ok"],"1825":["Nortorf","","ok"],"1826":["Bordesholm","","ok"],"1827":["Stolpe","","ok"],"1828":["Plön","","ok"],"1829":["Eutin","","ok"],"1830":["Neustadt (in Holstein)","","ok"],"1831":["Grömitz","","ok"],"1832":["Kellenhusen","","ok"],"1835":["Rerik","","ok"],"1836":["Kühlungsborn","","ok"],"1837":["Bad Doberan","","ok"],"1838":["Rostock N","","ok"],"1839":["Rövershagen","","ok"],"1840":["Gresenhorst","","ok"],"1841":["Marlow","","ok"],"1842":["Drechow","","ok"],"1843":["Franzburg","","ok"],"1844":["Grimmen","","ok"],"1845":["Horst","","ok"],"1846":["Greifswald N","","ok"],"1847":["Lubmin","","ok"],"1848":["Kröslin","","ok"],"1849":["Karlshagen","","ok"],"1918":["Trischen","","ok"],"1919":["Dieksand","","ok"],"1920":["Meldorf","","ok"],"1921":["Süderhastedt","","ok"],"1922":["Schenefeld","","ok"],"1923":["Hohenwestedt","","ok"],"1924":["Hennstedt","","ok"],"1925":["Neumünster","","ok"],"1926":["Groß Kummerfeld","","ok"],"1927":["Bornhöved","","ok"],"1928":["Schlamersdorf","","ok"],"1929":["Ahrensbök","","ok"],"1930":["Süsel","","ok"],"1931":["Pelzerhaken","","ok"],"1932":["Warnkenhagen","","ok"],"1933":["Großklützhöved","","ok"],"1934":["Kaltenhof","","ok"],"1935":["Boiensdorf","","ok"],"1936":["Kröpelin","","ok"],"1937":["Hanstorf","","ok"],"1938":["Rostock","","ok"],"1939":["Dummerstorf","","ok"],"1940":["Tessin","","ok"],"1941":["Thelkow","","ok"],"1942":["Tribsees","","ok"],"1943":["Glewitz","","ok"],"1944":["Rakow","","ok"],"1945":["Griebenow","","ok"],"1946":["Greifswald","","ok"],"1947":["Kemnitz","","ok"],"1948":["Wolgast","","ok"],"1949":["Zinnowitz","","ok"],"1950":["Koserow","","ok"],"2016":["Neuwerk West","","ok"],"2017":["Neuwerk Ost","","ok"],"2019":["Kaiser-Wilhelm-Koog","","ok"],"2020":["Marne","","ok"],"2021":["Burg (in Dithm.)","Burg (NI)","ok (Namensvarianten)"],"2022":["Wilster","","ok"],"2023":["Itzehoe","","ok"],"2024":["Kellinghusen","","ok"],"2025":["Bad Bramstedt","","ok"],"2026":["Heidmühlen","","ok"],"2027":["Bad Segeberg","","ok"],"2028":["Pronstorf","","ok"],"2029":["Curau","","ok"],"2030":["Bad Schwartau","","ok"],"2031":["Travemünde","","ok"],"2032":["Klütz","","ok"],"2033":["Boltenhagen","","ok"],"2034":["Wismar N","","ok"],"2035":["Neuburg","","ok"],"2036":["Kirch Mulsow","","ok"],"2037":["Satow","","ok"],"2038":["Schwaan","","ok"],"2039":["Kronskamp","","ok"],"2040":["Laage","","ok"],"2041":["Walkendorf","","ok"],"2042":["Gnoien","","ok"],"2043":["Dargun N","","ok"],"2044":["Demmin","","ok"],"2045":["Bentzin","","ok"],"2046":["Jarmen","","ok"],"2047":["Züssow","","ok"],"2048":["Rubkow","","ok"],"2049":["Lassan","","ok"],"2050":["Bansin","","ok"],"2051":["Ahlbeck","","ok"],"2117":["Cuxhaven West","","ok"],"2118":["Cuxhaven","","ok"],"2119":["Otterndorf","","ok"],"2120":["Brunsbüttel","","ok"],"2121":["Freiburg (Elbe)","","ok"],"2122":["Krempe","","ok"],"2123":["Lägerdorf","","ok"],"2124":["Brande-Hörnerkirchen","","ok"],"2125":["Kaltenkirchen","","ok"],"2126":["Stuvenborn","","ok"],"2127":["Leezen","","ok"],"2128":["Bad Oldesloe","","ok"],"2129":["Hamberge","","ok"],"2130":["Lübeck","","ok"],"2131":["Schönberg","","ok"],"2132":["Mallentin","","ok"],"2133":["Grevesmühlen","","ok"],"2134":["Wismar","","ok"],"2135":["Zurow","","ok"],"2136":["Neukloster","","ok"],"2137":["Bützow","","ok"],"2138":["Lüssow","","ok"],"2139":["Güstrow N","","ok"],"2140":["Diekhof","","ok"],"2141":["Jördenstorf","","ok"],"2142":["Neukalen","","ok"],"2143":["Dargun S","","ok"],"2144":["Beggerow","","ok"],"2145":["Daberkow","","ok"],"2146":["Krien","","ok"],"2147":["Medow","","ok"],"2148":["Anklam","","ok"],"2149":["Usedom","","ok"],"2150":["Zirchow","","ok"],"2151":["Kamminke","","ok"],"2208":["Norderney West","","nicht in BKG-Übersicht"],"2209":["Norderney","","ok"],"2210":["Langeoog West","","ok"],"2211":["Langeoog Ost","","ok"],"2212":["Spiekeroog","","ok"],"2213":["Wangerooge","","ok"],"2214":["Alte Mellum","Mellum (SH)","ok (Namensvarianten)"],"2217":["Nordholz","","ok"],"2218":["Wanna","","ok"],"2219":["Ihlienworth","","ok"],"2220":["Cadenberge","","ok"],"2221":["Wischhafen","","ok"],"2222":["Glückstadt","","ok"],"2223":["Elmshorn","","ok"],"2224":["Barmstedt","","ok"],"2225":["Quickborn","","ok"],"2226":["Wakendorf","","ok"],"2227":["Bargteheide","","ok"],"2228":["Eichede","","ok"],"2229":["Krummesse","","ok"],"2230":["Ratzeburg","","ok"],"2231":["Carlow","","ok"],"2232":["Gadebusch","","ok"],"2233":["Mühlen Eichsen","","ok"],"2234":["Bad Kleinen","","ok"],"2235":["Ventschow","","ok"],"2236":["Sternberg","","ok"],"2237":["Warnow","","ok"],"2238":["Tarnow","","ok"],"2239":["Güstrow","","ok"],"2240":["Lalendorf","","ok"],"2241":["Teterow","","ok"],"2242":["Malchin","","ok"],"2243":["Ivenack","","ok"],"2244":["Sarow","","ok"],"2245":["Gültz","","ok"],"2246":["Siedenbollentin","","ok"],"2247":["Spantekow","","ok"],"2248":["Ducherow","","ok"],"2249":["Leopoldshagen","","ok"],"2250":["Ueckermünde","","ok"],"2251":["Altwarp","","ok"],"2306":["Borkum","","nicht in BKG-Übersicht"],"2307":["Juist West","","ok"],"2308":["Juist Ost","","ok"],"2309":["Hage","","ok"],"2310":["Dornum","","ok"],"2311":["Esens","","ok"],"2312":["Carolinensiel","","ok"],"2313":["Wangerland","","ok"],"2314":["Hooksiel","","ok"],"2315":["Langwarden","","ok"],"2316":["Schmarren","","ok"],"2317":["Langen","","ok"],"2318":["Drangstedt","","ok"],"2319":["Bad Bederkesa","Bederkesa (SH)","ok (Namensvarianten)"],"2320":["Lamstedt","","ok"],"2321":["Himmelpforten","","ok"],"2322":["Stade Nord","","ok"],"2323":["Uetersen","","ok"],"2324":["Pinneberg","","ok"],"2325":["Niendorf","","ok"],"2326":["Fuhlsbüttel","","ok"],"2327":["Ahrensburg","","ok"],"2328":["Trittau","","ok"],"2329":["Nusse","","ok"],"2330":["Mölln","","ok"],"2331":["Seedorf","","ok"],"2332":["Roggendorf","","ok"],"2333":["Lützow","","ok"],"2334":["Schwerin","","ok"],"2335":["Langen Brütz","","ok"],"2336":["Demen","","ok"],"2337":["Dabel","","ok"],"2338":["Dobbertin","","ok"],"2339":["Krakow am See","","ok"],"2340":["Hohen Wangelin","","ok"],"2341":["Dahmen","","ok"],"2342":["Schwinkendorf","","ok"],"2343":["Stavenhagen","","ok"],"2344":["Rosenow","","ok"],"2345":["Altentreptow","","ok"],"2346":["Brunn","","ok"],"2347":["Friedland","","ok"],"2348":["Heinrichswalde","","ok"],"2349":["Ferdinandshof","","ok"],"2350":["Torgelow","","ok"],"2351":["Rieth","","ok"],"2407":["Lütje Hörn","","nicht in BKG-Übersicht"],"2408":["Greetsiel","","ok"],"2409":["Norden","","ok"],"2410":["Westerholt","","ok"],"2411":["Blomberg","","ok"],"2412":["Wittmund","","ok"],"2413":["Jever","","ok"],"2414":["Wilhelmshaven","","ok"],"2415":["Butjadingen West","","ok"],"2416":["Butjadingen Ost","","ok"],"2417":["Bremerhaven","","ok"],"2418":["Kührstedt","","ok"],"2419":["Köhlen","","ok"],"2420":["Ebersdorf","","ok"],"2421":["Oldendorf","","ok"],"2422":["Stade Süd","","ok"],"2423":["Horneburg","","ok"],"2424":["Wedel","","ok"],"2425":["Hamburg","","ok"],"2426":["Wandsbek","","ok"],"2427":["Glinde","","ok"],"2428":["Schwarzenbek","","ok"],"2429":["Siebeneichen","","ok"],"2430":["Gudow","","ok"],"2431":["Zarrentin","Zarrentin am Schaalsee (MV)","ok (Namensvarianten)"],"2432":["Wittenburg","","ok"],"2433":["Dümmer","","ok"],"2434":["Schwerin S","","ok"],"2435":["Crivitz","","ok"],"2436":["Wessin","","ok"],"2437":["Mestlin","","ok"],"2438":["Goldberg","","ok"],"2439":["Karow","","ok"],"2440":["Nossentiner Hütte","","ok"],"2441":["Grabowhöfe","","ok"],"2442":["Waren (Müritz)","","ok"],"2443":["Möllenhagen","","ok"],"2444":["Penzlin","","ok"],"2445":["Neubrandenburg","","ok"],"2446":["Pragsdorf","","ok"],"2447":["Groß Miltzow","","ok"],"2448":["Strasburg (Uckermark)","","ok"],"2449":["Pasewalk","","ok"],"2450":["Viereck","","ok"],"2451":["Rothenklempenow","","ok"],"2508":["Krummhörn","","ok"],"2509":["Hinte","","ok"],"2510":["Aurich","","ok"],"2511":["Ostgroßefehn","","ok"],"2512":["Wiesmoor","","ok"],"2513":["Zetel","","ok"],"2514":["Varel Nord","","ok"],"2515":["Jadebusen","","ok"],"2516":["Nordenham","","ok"],"2517":["Loxstedt","","ok"],"2518":["Beverstedt","","ok"],"2519":["Frelsdorf","","ok"],"2520":["Bremervörde","","ok"],"2521":["Kutenholz","","ok"],"2522":["Bargstedt","","ok"],"2523":["Harsefeld","","ok"],"2524":["Buxtehude","","ok"],"2525":["Harburg","","ok"],"2526":["Allermöhe","","ok"],"2527":["Bergedorf","","ok"],"2528":["Geesthacht","","ok"],"2529":["Büchen","","ok"],"2530":["Schwanheide","Gresse (NI)","ok (Namensvarianten)"],"2531":["Camin","","ok"],"2532":["Körchow","","ok"],"2533":["Hagenow","","ok"],"2534":["Rastow","","ok"],"2535":["Wöbbelin","","ok"],"2536":["Spornitz","","ok"],"2537":["Parchim","","ok"],"2538":["Lübz","","ok"],"2539":["Plau am See","","ok"],"2540":["Malchow","","ok"],"2541":["Klink","","ok"],"2542":["Federow","","ok"],"2543":["Kratzeburg","","ok"],"2544":["Hohenzieritz","","ok"],"2545":["Burg Stargard","","ok"],"2546":["Ballin","","ok"],"2547":["Woldegk","","ok"],"2548":["Lemmersdorf","Hetzdorf (MV)","ok (Namensvarianten)"],"2549":["Trebenow","Göritz (MV)","ok (Namensvarianten)"],"2550":["Brüssow","","ok"],"2551":["Löcknitz","","ok"],"2552":["Grambow","","ok"],"2607":["Paapsand","","nicht in BKG-Übersicht"],"2608":["Emden West","","ok"],"2609":["Emden","","ok"],"2610":["Moormerland","","ok"],"2611":["Hesel","","ok"],"2612":["Uplengen","","ok"],"2613":["Neuenburg","","ok"],"2614":["Varel","","ok"],"2615":["Jade","","ok"],"2616":["Brake (Unterweser)","","ok"],"2617":["Hagen i. Bremen","","ok"],"2618":["Hambergen","","ok"],"2619":["Vollersode","","ok"],"2620":["Gnarrenburg","","ok"],"2621":["Selsingen","","ok"],"2622":["Heeslingen","","ok"],"2623":["Heidenau","","ok"],"2624":["Hollenstedt","","ok"],"2625":["Buchholz i. d. Nordheide","Buchholz in der Nordheide (SH)","ok (Namensvarianten)"],"2626":["Stelle","","ok"],"2627":["Winsen (Luhe)","","ok"],"2628":["Artlenburg","","ok"],"2629":["Lauenburg (Elbe)","","ok"],"2630":["Boizenburg (Elbe)","Boizenburg/Elbe (MV)","ok (Namensvarianten)"],"2631":["Brahlstorf","","ok"],"2632":["Lübtheen","","ok"],"2633":["Redefin","","ok"],"2634":["Ludwigslust","","ok"],"2635":["Neustadt-Glewe","","ok"],"2636":["Karrenzin","","ok"],"2637":["Marnitz","","ok"],"2638":["Stepenitz","","ok"],"2639":["Meyenburg","","ok"],"2640":["Fincken","","ok"],"2641":["Röbel/Müritz","Röbel (Müritz) (BB)","ok (Namensvarianten)"],"2642":["Rechlin","","ok"],"2643":["Roggentin","","ok"],"2644":["Neustrelitz","","ok"],"2645":["Carpin","","ok"],"2646":["Feldberg","","ok"],"2647":["Fürstenwerder","","ok"],"2648":["Dedelow","","ok"],"2649":["Prenzlau","","ok"],"2650":["Carmzow","","ok"],"2651":["Storkow","","ok"],"2652":["Nadrensee","","ok"],"2709":["Dollart","","ok"],"2710":["Leer (Ostfriesland)","","ok"],"2711":["Nortmoor","","ok"],"2712":["Apen","","ok"],"2713":["Westerstede","","ok"],"2714":["Wiefelstede","","ok"],"2715":["Rastede","","ok"],"2716":["Elsfleth","","ok"],"2717":["Schwanewede","","ok"],"2718":["Osterholz-Scharmbeck","","ok"],"2719":["Worpswede","","ok"],"2720":["Tarmstedt","","ok"],"2721":["Zeven","","ok"],"2722":["Elsdorf","","ok"],"2723":["Sittensen","","ok"],"2724":["Tostedt","","ok"],"2725":["Handeloh","","ok"],"2726":["Hanstedt","","ok"],"2727":["Salzhausen","","ok"],"2728":["Lüneburg","","ok"],"2729":["Scharnebeck","","ok"],"2730":["Bleckede","","ok"],"2731":["Neuhaus (Elbe)","","ok"],"2732":["Lübtheen S","Jessenitz (NI); Jessenitz (SH)","ok (Namensvarianten)"],"2733":["Tewswoos","","ok"],"2734":["Eldena","","ok"],"2735":["Grabow","","ok"],"2736":["Dallmin","","ok"],"2737":["Berge","","ok"],"2738":["Putlitz","","ok"],"2739":["Gerdshagen","","ok"],"2740":["Freyenstein","","ok"],"2741":["Wredenhagen","","ok"],"2742":["Mirow","","ok"],"2743":["Wesenberg","","ok"],"2744":["Ahrensberg","Wesenberg-Ahrensberg (BB)","ok (Namensvarianten)"],"2745":["Lychen","","ok"],"2746":["Beenz","Lychen-Beenz (MV)","ok (Namensvarianten)"],"2747":["Boitzenburg","","ok"],"2748":["Haßleben","","ok"],"2749":["Potzlow","","ok"],"2750":["Gramzow","","ok"],"2751":["Penkun","","ok"],"2752":["Gartz (Oder)","","ok"],"2809":["Bunde","","ok"],"2810":["Weener","","ok"],"2811":["Rhauderfehn","","ok"],"2812":["Barßel","","ok"],"2813":["Edewecht","","ok"],"2814":["Bad Zwischenahn","","ok"],"2815":["Oldenburg (Oldenburg)","","ok"],"2816":["Hude (Oldenburg)","","ok"],"2817":["Vegesack","","ok"],"2818":["Bremen Nord","","ok"],"2819":["Lilienthal","","ok"],"2820":["Ottersberg","","ok"],"2821":["Sottrum","","ok"],"2822":["Rotenburg (Wümme)","","ok"],"2823":["Vahlde","","ok"],"2824":["Schneverdingen","","ok"],"2825":["Behringen","","ok"],"2826":["Egestorf","","ok"],"2827":["Amelinghausen","","ok"],"2828":["Bienenbüttel","","ok"],"2829":["Altenmedingen","","ok"],"2830":["Dahlenburg","","ok"],"2831":["Göhrde","","ok"],"2832":["Dannenberg (Elbe) Nord","","ok"],"2833":["Dömitz","","ok"],"2834":["Gorlosen","","ok"],"2835":["Boberow","","ok"],"2836":["Karstädt","","ok"],"2837":["Baek","","ok"],"2838":["Wolfshagen","","ok"],"2839":["Pritzwalk","","ok"],"2840":["Wittstock/Dosse","","ok"],"2841":["Dossow","","ok"],"2842":["Flecken Zechlin","","ok"],"2843":["Rheinsberg","","ok"],"2844":["Fürstenberg/Havel","","ok"],"2845":["Bredereiche","","ok"],"2846":["Gandenitz","","ok"],"2847":["Templin","","ok"],"2848":["Gerswalde","","ok"],"2849":["Warnitz","","ok"],"2850":["Passow","","ok"],"2851":["Groß Pinnow","","ok"],"2909":["Rhede (Ems)","","ok"],"2910":["Papenburg","","ok"],"2911":["Burlage","","ok"],"2912":["Scharrel","","ok"],"2913":["Friesoythe","","ok"],"2914":["Littel","","ok"],"2915":["Wardenburg","","ok"],"2916":["Hatten","","ok"],"2917":["Delmenhorst","","ok"],"2918":["Bremen","","ok"],"2919":["Bremen Ost","","ok"],"2920":["Achim","","ok"],"2921":["Ahausen","","ok"],"2922":["Kirchwalsede","","ok"],"2923":["Bothel","","ok"],"2924":["Neuenkirchen","","ok"],"2925":["Bispingen","","ok"],"2926":["Munster Nord","","ok"],"2927":["Wriedel","","ok"],"2928":["Ebstorf","","ok"],"2929":["Bad Bevensen","","ok"],"2930":["Himbergen","","ok"],"2931":["Zernien","","ok"],"2932":["Dannenberg (Elbe) Süd","","ok"],"2933":["Gusborn","","ok"],"2934":["Lenzen","","ok"],"2935":["Schnackenburg","","ok"],"2936":["Wittenberge N","Schilde (ST)","ok (Namensvarianten)"],"2937":["Perleberg","","ok"],"2938":["Lindenberg","","ok"],"2939":["Vehlow","","ok"],"2940":["Blumenthal","","ok"],"2941":["Rägelin","","ok"],"2942":["Neuruppin-Gühlen-Glienicke","","ok"],"2943":["Rheinsberg S","","ok"],"2944":["Gransee","","ok"],"2945":["Mildenberg","","ok"],"2946":["Hammelspring","","ok"],"2947":["Vietmannsdorf","","ok"],"2948":["Friedrichswalde","","ok"],"2949":["Greiffenberg","","ok"],"2950":["Angermünde","","ok"],"2951":["Schwedt/Oder","","ok"],"3008":["Dörpen West","","nicht in BKG-Übersicht"],"3009":["Dörpen","","ok"],"3010":["Wippingen","","ok"],"3011":["Esterwegen","","ok"],"3012":["Rastdorf","","ok"],"3013":["Markhausen","","ok"],"3014":["Garrel","","ok"],"3015":["Großenkneten","","ok"],"3016":["Wildeshausen Nord","","ok"],"3017":["Harpstedt","","ok"],"3018":["Syke","","ok"],"3019":["Weyhe","","ok"],"3020":["Thedinghausen","","ok"],"3021":["Verden (Aller)","","ok"],"3022":["Bendingbostel","","ok"],"3023":["Visselhövede","","ok"],"3024":["Dorfmark","","ok"],"3025":["Soltau","","ok"],"3026":["Munster","","ok"],"3027":["Faßberg","","ok"],"3028":["Gerdau","","ok"],"3029":["Uelzen","","ok"],"3030":["Rosche","","ok"],"3031":["Clenze","Klenze (ST)","ok (Namensvarianten)"],"3032":["Lüchow","","ok"],"3033":["Woltersdorf","","ok"],"3034":["Prezelle","Lomitz (ST)","ok (Namensvarianten)"],"3035":["Gr. Garz","Groß Garz (BB); Gross Garz (NI)","ok (Namensvarianten)"],"3036":["Wittenberge","","ok"],"3037":["Bad Wilsnack","Wilsnack (ST)","ok (Namensvarianten)"],"3038":["Glöwen","","ok"],"3039":["Demerthin","","ok"],"3040":["Kyritz","","ok"],"3041":["Lögow","","ok"],"3042":["Neuruppin","","ok"],"3043":["Lindow (Mark)","","ok"],"3044":["Großmutz","","ok"],"3045":["Klein-Mutz","","ok"],"3046":["Zehdenick","","ok"],"3047":["Groß Schönebeck","","ok"],"3048":["Joachimsthal","","ok"],"3049":["Chorin","","ok"],"3050":["Lunow","","ok"],"3051":["Czachów","","ok"],"3108":["Rütenbrock","","ok"],"3109":["Lathen","","ok"],"3110":["Wahn","","ok"],"3111":["Sögel","","ok"],"3112":["Werlte","","ok"],"3113":["Molbergen","","ok"],"3114":["Cloppenburg","","ok"],"3115":["Visbek","","ok"],"3116":["Wildeshausen","","ok"],"3117":["Twistringen","","ok"],"3118":["Bassum","","ok"],"3119":["Vilsen","","ok"],"3120":["Hoya","","ok"],"3121":["Dörverden","","ok"],"3122":["Häuslingen","","ok"],"3123":["Walsrode","","ok"],"3124":["Fallingbostel","","ok"],"3125":["Bergen","","ok"],"3126":["Hermannsburg","","ok"],"3127":["Unterlüß","","ok"],"3128":["Suderburg","","ok"],"3129":["Wieren","","ok"],"3130":["Bodenteich","","ok"],"3131":["Bergen (Dumme)","Bergen a.d. Dumme (ST)","ok (Namensvarianten)"],"3132":["Salzwedel","","ok"],"3133":["Deutsch-Pretzier","Pretzier (NI)","ok (Namensvarianten)"],"3134":["Arendsee","Arendsee (Altmark) (NI)","ok (Namensvarianten)"],"3135":["Leppin","","ok"],"3136":["Seehausen in der Altmark","Seehausen (Altmark) (BB)","ok (Namensvarianten)"],"3137":["Werben an der Elbe","Werben (Elbe) (BB)","ok (Namensvarianten)"],"3138":["Havelberg","","ok"],"3139":["Breddin","Lohm (ST)","ok (Namensvarianten)"],"3140":["Neustadt (Dosse)","","ok"],"3141":["Wildberg","","ok"],"3142":["Fehrbellin","","ok"],"3143":["Wustrau-Altfriesack","","ok"],"3144":["Löwenberg","","ok"],"3145":["Nassenheide","","ok"],"3146":["Liebenwalde","","ok"],"3147":["Zerpenschleuse","","ok"],"3148":["Eberswalde","","ok"],"3149":["Falkenberg/Mark","","ok"],"3150":["Oderberg","","ok"],"3151":["Cedynia","","ok"],"3208":["Hebelermeer","","ok"],"3209":["Haren (Ems)","","ok"],"3210":["Klein Berßen","","ok"],"3211":["Lähden","","ok"],"3212":["Löningen","","ok"],"3213":["Essen (Oldenburg)","","ok"],"3214":["Vestrup","","ok"],"3215":["Vechta","","ok"],"3216":["Goldenstedt","","ok"],"3217":["Barnstorf","","ok"],"3218":["Schwaförden","","ok"],"3219":["Affinghausen","","ok"],"3220":["Bücken","","ok"],"3221":["Eystrup","","ok"],"3222":["Rethem (Aller)","","ok"],"3223":["Hodenhagen","","ok"],"3224":["Westenholz","","ok"],"3225":["Offen","","ok"],"3226":["Sülze","","ok"],"3227":["Eschede","","ok"],"3228":["Sprakensehl","","ok"],"3229":["Hankensbüttel","","ok"],"3230":["Wittingen","","ok"],"3231":["Diesdorf","","ok"],"3232":["Beetzendorf","","ok"],"3233":["Gr. Apenburg","","ok"],"3234":["Jeetze","","ok"],"3235":["Meßdorf","","ok"],"3236":["Osterburg","","ok"],"3237":["Hindenburg Kr. Osterburg","","ok"],"3238":["Sandau","Sandau (Elbe) (BB)","ok (Namensvarianten)"],"3239":["Warnau","Strodehne (ST)","ok (Namensvarianten)"],"3240":["Rhinow","","ok"],"3241":["Friesack","","ok"],"3242":["Königshorst","","ok"],"3243":["Linum","","ok"],"3244":["Kremmen","","ok"],"3245":["Oranienburg","","ok"],"3246":["Wandlitz","","ok"],"3247":["Biesenthal","","ok"],"3248":["Melchow","","ok"],"3249":["Heckelberg","","ok"],"3250":["Bad Freienwalde (Oder)","","ok"],"3251":["Neulewin","","ok"],"3252":["Ortwig","","ok"],"3306":["Laar","","ok"],"3307":["Emlichheim","","ok"],"3308":["Twist","","ok"],"3309":["Meppen","","ok"],"3310":["Haselünne","","ok"],"3311":["Herzlake","","ok"],"3312":["Berge","","ok"],"3313":["Quakenbrück","","ok"],"3314":["Dinklage","","ok"],"3315":["Lohne (Oldenburg)","","ok"],"3316":["Diepholz","","ok"],"3317":["Barver","","ok"],"3318":["Sulingen","","ok"],"3319":["Siedenburg","","ok"],"3320":["Liebenau","","ok"],"3321":["Nienburg (Weser)","","ok"],"3322":["Steimbke","","ok"],"3323":["Schwarmstedt","","ok"],"3324":["Lindwedel","","ok"],"3325":["Winsen (Aller)","","ok"],"3326":["Celle","","ok"],"3327":["Lachendorf","","ok"],"3328":["Groß Oesingen","","ok"],"3329":["Wahrenholz","","ok"],"3330":["Knesebeck","","ok"],"3331":["Brome","","ok"],"3332":["Klötze (West)","","ok"],"3333":["Klötze (Ost)","","ok"],"3334":["Calbe a.d. Milde","","ok"],"3335":["Bismark (Prov. Sachsen)","","ok"],"3336":["Schinne","","ok"],"3337":["Stendal","","ok"],"3338":["Arneburg","","ok"],"3339":["Schollene","","ok"],"3340":["Rathenow","","ok"],"3341":["Nennhausen","","ok"],"3342":["Paulinenaue","","ok"],"3343":["Nauen","","ok"],"3344":["Bötzow","","ok"],"3345":["Hennigsdorf","","ok"],"3346":["Berlin-Buchholz","","ok"],"3347":["Bernau","","ok"],"3348":["Werneuchen","","ok"],"3349":["Prötzel","","ok"],"3350":["Reichenow","","ok"],"3351":["Neutrebbin","","ok"],"3352":["Letschin","","ok"],"3353":["Genschmar","","ok"],"3406":["Itterbeck","","ok"],"3407":["Neuenhaus Nord","","ok"],"3408":["Wietmarschen","","ok"],"3409":["Lingen (Ems)","","ok"],"3410":["Lingen (Ems) Ost","","ok"],"3411":["Lengerich","","ok"],"3412":["Fürstenau","","ok"],"3413":["Bersenbrück","","ok"],"3414":["Holdorf","","ok"],"3415":["Damme","","ok"],"3416":["Lembruch","","ok"],"3417":["Wagenfeld","","ok"],"3418":["Bahrenborstel","","ok"],"3419":["Uchte Nord","","ok"],"3420":["Stolzenau","","ok"],"3421":["Husum","","ok"],"3422":["Neustadt am Rübenberge","","ok"],"3423":["Otternhagen","","ok"],"3424":["Wedemark","","ok"],"3425":["Wettmar","","ok"],"3426":["Wathlingen","","ok"],"3427":["Wienhausen","","ok"],"3428":["Müden (Aller)","","ok"],"3429":["Wesendorf","","ok"],"3430":["Ehra-Lessien","","ok"],"3431":["Parsau","Steimke (ST)","ok (Namensvarianten)"],"3432":["Kunrau","","ok"],"3433":["Solpke","","ok"],"3434":["Gardelegen","","ok"],"3435":["Lindstedt","","ok"],"3436":["Lüderitz","","ok"],"3437":["Tangermünde","","ok"],"3438":["Jerichow","","ok"],"3439":["Milow","Vieritz (ST)","ok (Namensvarianten)"],"3440":["Premnitz","","ok"],"3441":["Garlitz","","ok"],"3442":["Tremmen","","ok"],"3443":["Wustermark","","ok"],"3444":["Falkensee","","ok"],"3445":["Berlin-Spandau","","ok"],"3446":["Berlin-Mitte","","ok"],"3447":["Berlin-Marzahn","","ok"],"3448":["Altlandsberg","","ok"],"3449":["Strausberg","","ok"],"3450":["Müncheberg","","ok"],"3451":["Neuhardenberg","","ok"],"3452":["Seelow","","ok"],"3453":["Küstrin-Kietz","","ok"],"3506":["Getelomoor","","ok"],"3507":["Neuenhaus Süd","","ok"],"3508":["Nordhorn","","ok"],"3509":["Lingen (Ems) Süd","","ok"],"3510":["Lünne","","ok"],"3511":["Freren","","ok"],"3512":["Voltlage","","ok"],"3513":["Bramsche","","ok"],"3514":["Vörden","","ok"],"3515":["Hunteburg","","ok"],"3516":["Lemförde","","ok"],"3517":["Rahden","","ok"],"3518":["Diepenau","","ok"],"3519":["Uchte Süd","","ok"],"3520":["Loccum","","ok"],"3521":["Rehburg","","ok"],"3522":["Wunstorf","","ok"],"3523":["Garbsen","","ok"],"3524":["Hannover Nord","","ok"],"3525":["Großburgwedel","","ok"],"3526":["Burgdorf","","ok"],"3527":["Uetze","","ok"],"3528":["Meinersen","","ok"],"3529":["Gifhorn","","ok"],"3530":["Wolfsburg","","ok"],"3531":["Oebisfelde","Öbisfelde (ST)","ok (Namensvarianten)"],"3532":["Rätzlingen","","ok"],"3533":["Mieste","","ok"],"3534":["Letzlingen","","ok"],"3535":["Dolle","","ok"],"3536":["Tangerhütte","","ok"],"3537":["Weißewarte","","ok"],"3538":["Genthin","","ok"],"3539":["Schlagenthin","","ok"],"3540":["Pritzerbe","","ok"],"3541":["Brandenburg a.d. Havel","","ok"],"3542":["Groß Kreutz","","ok"],"3543":["Ketzin","","ok"],"3544":["Potsdam N","","ok"],"3545":["Berlin-Zehlendorf","","ok"],"3546":["Berlin-Neukölln","","ok"],"3547":["Berlin-Köpenick","","ok"],"3548":["Rüdersdorf b. Berlin","","ok"],"3549":["Herzfelde","","ok"],"3550":["Beerfelde","","ok"],"3551":["Heinersdorf","","ok"],"3552":["Alt Zeschdorf","","ok"],"3553":["Lebus","","ok"],"3608":["Bad Bentheim","","ok"],"3609":["Schüttorf","","ok"],"3610":["Salzbergen","","ok"],"3611":["Hopsten","","ok"],"3612":["Mettingen","","ok"],"3613":["Westerkappeln","","ok"],"3614":["Wallenhorst","","ok"],"3615":["Bohmte","","ok"],"3616":["Preußisch Oldendorf","","ok"],"3617":["Lübbecke","","ok"],"3618":["Hille","","ok"],"3619":["Petershagen","","ok"],"3620":["Niedernwöhren","","ok"],"3621":["Stadthagen","","ok"],"3622":["Barsinghausen","","ok"],"3623":["Gehrden","","ok"],"3624":["Hannover","","ok"],"3625":["Lehrte","","ok"],"3626":["Hämelerwald","","ok"],"3627":["Peine","","ok"],"3628":["Wendeburg","","ok"],"3629":["Braunschweig Nord","","ok"],"3630":["Wolfsburg Süd","","ok"],"3631":["Groß Twülpstedt","Gr. Twülpstedt (ST)","ok (Namensvarianten)"],"3632":["Weferlingen","","ok"],"3633":["Calvörde","","ok"],"3634":["Uthmöden","","ok"],"3635":["Colbitz","","ok"],"3636":["Rogätz","","ok"],"3637":["Parey","","ok"],"3638":["Parchen","","ok"],"3639":["Karow","","ok"],"3640":["Wusterwitz","","ok"],"3641":["Brandenburg a.d. Havel-Göttin","","ok"],"3642":["Lehnin","","ok"],"3643":["Werder (Havel)","","ok"],"3644":["Potsdam","","ok"],"3645":["Großbeeren","","ok"],"3646":["Blankenfelde","","ok"],"3647":["Zeuthen","","ok"],"3648":["Wernsdorf","","ok"],"3649":["Spreenhagen","","ok"],"3650":["Fürstenwalde/Spree","","ok"],"3651":["Briesen (Mark)","","ok"],"3652":["Jacobsdorf","","ok"],"3653":["Frankfurt (Oder)","","ok"],"3708":["Gronau (Westf.)","Gronau (Westfalen) (NI)","ok (Namensvarianten)"],"3709":["Ochtrup","","ok"],"3710":["Rheine","","ok"],"3711":["Hörstel","","ok"],"3712":["Ibbenbüren","","ok"],"3713":["Hasbergen","","ok"],"3714":["Osnabrück","","ok"],"3715":["Bissendorf","","ok"],"3716":["Melle","","ok"],"3717":["Kirchlengern","","ok"],"3718":["Bad Oeynhausen","","ok"],"3719":["Minden","","ok"],"3720":["Bückeburg","","ok"],"3721":["Auetal","","ok"],"3722":["Lauenau","","ok"],"3723":["Springe","","ok"],"3724":["Pattensen","","ok"],"3725":["Sarstedt","","ok"],"3726":["Hohenhameln","","ok"],"3727":["Ilsede","","ok"],"3728":["Braunschweig West","","ok"],"3729":["Braunschweig","","ok"],"3730":["Königslutter am Elm","","ok"],"3731":["Süpplingen","","ok"],"3732":["Helmstedt","","ok"],"3733":["Erxleben","","ok"],"3734":["Haldensleben","","ok"],"3735":["Wolmirstedt","","ok"],"3736":["Niegripp","","ok"],"3737":["Burg b. M.","","ok"],"3738":["Theeßen","","ok"],"3739":["Ziesar","","ok"],"3740":["Wollin","","ok"],"3741":["Golzow","","ok"],"3742":["Damelang-Freienthal","","ok"],"3743":["Beelitz","","ok"],"3744":["Wildenbruch","","ok"],"3745":["Trebbin","","ok"],"3746":["Zossen","","ok"],"3747":["Königs Wusterhausen","","ok"],"3748":["Friedersdorf","","ok"],"3749":["Storkow","","ok"],"3750":["Bad Saarow-Pieskow","","ok"],"3751":["Groß Rietz","","ok"],"3752":["Müllrose","","ok"],"3753":["Brieskow-Finkenheerd","","ok"],"3754":["Aurith","","ok"],"3807":["Alstätte","","ok"],"3808":["Heek","","ok"],"3809":["Metelen","","ok"],"3810":["Steinfurt","","ok"],"3811":["Emsdetten","","ok"],"3812":["Ladbergen","","ok"],"3813":["Lengerich","","ok"],"3814":["Bad Iburg","","ok"],"3815":["Dissen am Teutoburger Wald","","ok"],"3816":["Spenge","","ok"],"3817":["Bünde","","ok"],"3818":["Herford","","ok"],"3819":["Vlotho","","ok"],"3820":["Rinteln","","ok"],"3821":["Hessisch Oldendorf","","ok"],"3822":["Hameln","","ok"],"3823":["Coppenbrügge","","ok"],"3824":["Elze","","ok"],"3825":["Hildesheim","","ok"],"3826":["Schellerten","","ok"],"3827":["Lebenstedt West","","ok"],"3828":["Lebenstedt Ost","","ok"],"3829":["Wolfenbüttel","","ok"],"3830":["Schöppenstedt","","ok"],"3831":["Schöningen","","ok"],"3832":["Hötensleben","Wefensleben (NI)","ok (Namensvarianten)"],"3833":["Seehausen Kr. Wanzleben","","ok"],"3834":["Gr. Rodensleben","","ok"],"3835":["Magdeburg","","ok"],"3836":["Biederitz","","ok"],"3837":["Möckern","","ok"],"3838":["Loburg","","ok"],"3839":["Altengrabow","Reppinichen (BB)","ok (Namensvarianten)"],"3840":["Görzke","","ok"],"3841":["Belzig","","ok"],"3842":["Brück","","ok"],"3843":["Wittbrietzen","","ok"],"3844":["Hennickendorf","","ok"],"3845":["Woltersdorf","","ok"],"3846":["Wünsdorf","","ok"],"3847":["Teupitz","","ok"],"3848":["Märkisch Buchholz","","ok"],"3849":["Alt-Schadow","","ok"],"3850":["Kossenblatt","","ok"],"3851":["Beeskow","","ok"],"3852":["Grunow","","ok"],"3853":["Eisenhüttenstadt","","ok"],"3854":["Eisenhüttenstadt Ost","","ok"],"3906":["Vreden","","ok"],"3907":["Ottenstein","","ok"],"3908":["Ahaus","","ok"],"3909":["Horstmar","","ok"],"3910":["Altenberge","","ok"],"3911":["Greven","","ok"],"3912":["Westbevern","","ok"],"3913":["Ostbevern","","ok"],"3914":["Versmold","","ok"],"3915":["Bockhorst","","ok"],"3916":["Halle (Westf.)","","ok"],"3917":["Bielefeld","","ok"],"3918":["Bad Salzuflen","","ok"],"3919":["Lemgo","","ok"],"3920":["Extertal","","ok"],"3921":["Aerzen","","ok"],"3922":["Hameln Süd","","ok"],"3923":["Salzhemmendorf","","ok"],"3924":["Gronau (Leine)","","ok"],"3925":["Sibbesse","","ok"],"3926":["Bad Salzdetfurth","","ok"],"3927":["Ringelheim","","ok"],"3928":["Salzgitter-Bad","","ok"],"3929":["Schladen","Hornburg (ST)","ok (Namensvarianten)"],"3930":["Hessen","","ok"],"3931":["Jerxheim","","ok"],"3932":["Hamersleben","","ok"],"3933":["Oschersleben a.d. Bode","","ok"],"3934":["Wanzleben","","ok"],"3935":["Gr. Ottersleben","","ok"],"3936":["Schönebeck a.d. Elbe","","ok"],"3937":["Leitzkau","","ok"],"3938":["Lindau i. Anhalt","","ok"],"3939":["Nedlitz","","ok"],"3940":["Medewitz","Stackelitz (ST)","ok (Namensvarianten)"],"3941":["Rädigke","Klepzig (ST)","ok (Namensvarianten)"],"3942":["Niemegk","","ok"],"3943":["Treuenbrietzen","","ok"],"3944":["Kloster Zinna","","ok"],"3945":["Luckenwalde","","ok"],"3946":["Paplitz","","ok"],"3947":["Baruth (Mark)","","ok"],"3948":["Oderin","","ok"],"3949":["Schlepzig","","ok"],"3950":["Groß Leuthen","","ok"],"3951":["Trebatsch","","ok"],"3952":["Groß Muckrow","","ok"],"3953":["Neuzelle","","ok"],"3954":["Wellmitz","","ok"],"4006":["Oeding","","ok"],"4007":["Stadtlohn","","ok"],"4008":["Gescher","","ok"],"4009":["Coesfeld","","ok"],"4010":["Nottuln","","ok"],"4011":["Münster","","ok"],"4012":["Telgte","","ok"],"4013":["Warendorf","","ok"],"4014":["Sassenberg","","ok"],"4015":["Harsewinkel","","ok"],"4016":["Gütersloh","","ok"],"4017":["Brackwede","","ok"],"4018":["Lage","","ok"],"4019":["Detmold","","ok"],"4020":["Blomberg","","ok"],"4021":["Bad Pyrmont","","ok"],"4022":["Ottenstein","","ok"],"4023":["Eschershausen","","ok"],"4024":["Alfeld (Leine)","","ok"],"4025":["Freden (Leine)","","ok"],"4026":["Lamspringe","","ok"],"4027":["Lutter am Barenberge","","ok"],"4028":["Goslar","","ok"],"4029":["Vienenburg","","ok"],"4030":["Osterwieck","","ok"],"4031":["Dardesheim","","ok"],"4032":["Schwanebeck","","ok"],"4033":["Gröningen","","ok"],"4034":["Egeln","","ok"],"4035":["Atzendorf","","ok"],"4036":["Calbe a.d. Saale","","ok"],"4037":["Barby","","ok"],"4038":["Zerbst","","ok"],"4039":["Mühlstedt","Thießen (BB)","ok (Namensvarianten)"],"4040":["Hundeluft","Jeber-Bergfrieden (BB)","ok (Namensvarianten)"],"4041":["Straach","","ok"],"4042":["Zahna","","ok"],"4043":["Blönsdorf","","ok"],"4044":["Jüterbog","","ok"],"4045":["Markendorf","","ok"],"4046":["Petkus","","ok"],"4047":["Golßen","","ok"],"4048":["Schönwalde","","ok"],"4049":["Lübben/Spreewald","","ok"],"4050":["Straupitz","","ok"],"4051":["Lieberose","","ok"],"4052":["Jamlitz","","ok"],"4053":["Pinnow","","ok"],"4054":["Guben","","ok"],"4102":["Elten","","ok"],"4103":["Emmerich am Rhein","","ok"],"4104":["Isselburg","","ok"],"4105":["Bocholt","","ok"],"4106":["Rhede","","ok"],"4107":["Borken","","ok"],"4108":["Reken","","ok"],"4109":["Dülmen","","ok"],"4110":["Senden","","ok"],"4111":["Ottmarsbocholt","","ok"],"4112":["Sendenhorst","","ok"],"4113":["Enniger","","ok"],"4114":["Oelde","","ok"],"4115":["Rheda-Wiedenbrück","","ok"],"4116":["Rietberg","","ok"],"4117":["Verl","","ok"],"4118":["Die Senne","","ok"],"4119":["Horn-Bad Meinberg","","ok"],"4120":["Steinheim","","ok"],"4121":["Schieder-Schwalenberg","","ok"],"4122":["Holzminden","","ok"],"4123":["Stadtoldendorf","","ok"],"4124":["Dassel","","ok"],"4125":["Einbeck","","ok"],"4126":["Bad Gandersheim","","ok"],"4127":["Seesen","","ok"],"4128":["Clausthal-Zellerfeld","","ok"],"4129":["Bad Harzburg","","ok"],"4130":["Wernigerode","","ok"],"4131":["Derenburg","","ok"],"4132":["Halberstadt","","ok"],"4133":["Wegeleben","","ok"],"4134":["Cochstedt","","ok"],"4135":["Staßfurt","","ok"],"4136":["Nienburg a.d. Saale","","ok"],"4137":["Wulfen in Anhalt","","ok"],"4138":["Aken (Elbe)","","ok"],"4139":["Dessau","","ok"],"4140":["Coswig","","ok"],"4141":["Wittenberg Prov. Sachsen","","ok"],"4142":["Wartenburg","Elster (Elbe) (BB)","ok (Namensvarianten)"],"4143":["Seyda","","ok"],"4144":["Linda (Elster)","Linda (ST)","ok (Namensvarianten)"],"4145":["Schönewalde","","ok"],"4146":["Dahme","","ok"],"4147":["Uckro","","ok"],"4148":["Luckau","","ok"],"4149":["Lübbenau/Spreewald","","ok"],"4150":["Burg/Spreewald","","ok"],"4151":["Werben","","ok"],"4152":["Peitz","","ok"],"4153":["Groß Gastrose","","ok"],"4202":["Kleve","","ok"],"4203":["Kalkar","","ok"],"4204":["Rees","","ok"],"4205":["Hamminkeln","","ok"],"4206":["Brünen","","ok"],"4207":["Raesfeld","","ok"],"4208":["Wulfen","","ok"],"4209":["Haltern am See","","ok"],"4210":["Lüdinghausen","","ok"],"4211":["Ascheberg","","ok"],"4212":["Drensteinfurt","","ok"],"4213":["Ahlen","","ok"],"4214":["Beckum","","ok"],"4215":["Wadersloh","","ok"],"4216":["Mastholte","","ok"],"4217":["Delbrück","","ok"],"4218":["Paderborn","","ok"],"4219":["Altenbeken","","ok"],"4220":["Bad Driburg","","ok"],"4221":["Brakel","","ok"],"4222":["Höxter","","ok"],"4223":["Neuhaus im Solling","","ok"],"4224":["Lauenberg","","ok"],"4225":["Northeim West","","ok"],"4226":["Northeim Ost","","ok"],"4227":["Osterode am Harz","","ok"],"4228":["Riefensbeek","","ok"],"4229":["Braunlage","St. Andreasberg (ST)","ok (Namensvarianten)"],"4230":["Elbingerode Harz","Elbingerode i. Harz (NI)","ok (Namensvarianten)"],"4231":["Blankenburg am Harz","","ok"],"4232":["Quedlinburg","","ok"],"4233":["Ballenstedt","","ok"],"4234":["Aschersleben","","ok"],"4235":["Güsten","","ok"],"4236":["Bernburg","","ok"],"4237":["Köthen","","ok"],"4238":["Quellendorf","","ok"],"4239":["Raghun","","ok"],"4240":["Gräfenhainichen","","ok"],"4241":["Kemberg","","ok"],"4242":["Pretzsch","","ok"],"4243":["Jessen Kr. Schweinitz","","ok"],"4244":["Schweinitz","Annaburg (BB)","ok (Namensvarianten)"],"4245":["Kolochau","Colochau (ST)","ok (Namensvarianten)"],"4246":["Schlieben","","ok"],"4247":["Walddrehna","","ok"],"4248":["Crinitz","","ok"],"4249":["Calau","","ok"],"4250":["Vetschau","","ok"],"4251":["Cottbus W","","ok"],"4252":["Cottbus O","","ok"],"4253":["Forst (Lausitz)","","ok"],"4302":["Goch","","ok"],"4303":["Uedem","","ok"],"4304":["Xanten","","ok"],"4305":["Wesel","","ok"],"4306":["Hünxe","","ok"],"4307":["Dorsten","","ok"],"4308":["Marl","","ok"],"4309":["Recklinghausen","","ok"],"4310":["Datteln","","ok"],"4311":["Lünen","","ok"],"4312":["Hamm","","ok"],"4313":["Welver","","ok"],"4314":["Lippetal","","ok"],"4315":["Benninghausen","","ok"],"4316":["Lippstadt","","ok"],"4317":["Geseke","","ok"],"4318":["Borchen","","ok"],"4319":["Lichtenau","","ok"],"4320":["Willebadessen","","ok"],"4321":["Borgholz","","ok"],"4322":["Bad Karlshafen","","ok"],"4323":["Uslar","","ok"],"4324":["Hardegsen","","ok"],"4325":["Nörten-Hardenberg","","ok"],"4326":["Katlenburg-Lindau","","ok"],"4327":["Gieboldehausen","","ok"],"4328":["Bad Lauterberg im Harz","","ok"],"4329":["Zorge","","ok"],"4330":["Benneckenstein","Benneckenstein i. Harz (NI); Benneckenstein (Harz) (TH)","ok (Namensvarianten)"],"4331":["Hasselfelde","","ok"],"4332":["Harzgerode","","ok"],"4333":["Pansfelde","","ok"],"4334":["Leimbach","","ok"],"4335":["Hettstedt","","ok"],"4336":["Könnern","","ok"],"4337":["Löbejün","","ok"],"4338":["Zörbig","","ok"],"4339":["Bitterfeld (West)","","ok"],"4340":["Bitterfeld (Ost)","Bitterfeld Ost (SN)","ok (Namensvarianten)"],"4341":["Söllichau","","ok"],"4342":["Schmiedeberg Bez. Halle","Bad Schmiedeberg (SN)","ok (Namensvarianten)"],"4343":["Prettin","Dommitzsch (SN)","ok (Namensvarianten)"],"4344":["Züllsdorf","","ok"],"4345":["Herzberg/Elster","Herzberg a.d. Elster (ST)","ok (Namensvarianten)"],"4346":["Schilda","","ok"],"4347":["Doberlug-Kirchhain","","ok"],"4348":["Finsterwalde","","ok"],"4349":["Göllnitz","","ok"],"4350":["Altdöbern","","ok"],"4351":["Drebkau","","ok"],"4352":["Sellessen","","ok"],"4353":["Döbern","","ok"],"4354":["Forst (Lausitz) Gr. Bademeusel","","ok"],"4403":["Geldern","","ok"],"4404":["Issum","","ok"],"4405":["Rheinberg","","ok"],"4406":["Dinslaken","","ok"],"4407":["Bottrop","","ok"],"4408":["Gelsenkirchen","","ok"],"4409":["Herne","","ok"],"4410":["Dortmund","","ok"],"4411":["Kamen","","ok"],"4412":["Unna","","ok"],"4413":["Werl","","ok"],"4414":["Soest","","ok"],"4415":["Anröchte","","ok"],"4416":["Effeln","","ok"],"4417":["Büren","","ok"],"4418":["Bad Wünnenberg","","ok"],"4419":["Kleinenberg","","ok"],"4420":["Peckelsheim","","ok"],"4421":["Borgentreich","","ok"],"4422":["Trendelburg","","ok"],"4423":["Oedelsheim","","ok"],"4424":["Dransfeld","","ok"],"4425":["Göttingen","","ok"],"4426":["Ebergötzen","","ok"],"4427":["Duderstadt","","ok"],"4428":["Weißenborn-Lüderode","","ok"],"4429":["Bad Sachsa","","ok"],"4430":["Nordhausen N","Nordhausen Nord (NI)","ok (Namensvarianten)"],"4431":["Stolberg am Harz","Stolberg (Harz) (TH)","ok (Namensvarianten)"],"4432":["Schwenda","","ok"],"4433":["Wippra","","ok"],"4434":["Mansfeld","","ok"],"4435":["Eisleben","","ok"],"4436":["Wettin","","ok"],"4437":["Halle (Nord) a.d. Saale","","ok"],"4438":["Landsberg bei Halle","","ok"],"4439":["Brehna","","ok"],"4440":["Delitzsch","","ok"],"4441":["Bad Düben","","ok"],"4442":["Mockrehna","","ok"],"4443":["Torgau West","","ok"],"4444":["Torgau","","ok"],"4445":["Falkenberg/Elster","","ok"],"4446":["Bad Liebenwerda","","ok"],"4447":["Rückersdorf","","ok"],"4448":["Lauchhammer-Grünewalde","","ok"],"4449":["Senftenberg West","","ok"],"4450":["Senftenberg","","ok"],"4451":["Welzow","","ok"],"4452":["Spremberg","","ok"],"4453":["Weißwasser","","ok"],"4454":["Bad Muskau","","ok"],"4503":["Straelen","","ok"],"4504":["Kerken","","ok"],"4505":["Moers","","ok"],"4506":["Duisburg","","ok"],"4507":["Mülheim (an der Ruhr)","","ok"],"4508":["Essen","","ok"],"4509":["Bochum","","ok"],"4510":["Witten","","ok"],"4511":["Schwerte","","ok"],"4512":["Menden (Sauerland)","","ok"],"4513":["Arnsberg-Neheim","","ok"],"4514":["Möhnesee","","ok"],"4515":["Hirschberg","","ok"],"4516":["Warstein","","ok"],"4517":["Alme","","ok"],"4518":["Madfeld","","ok"],"4519":["Marsberg","","ok"],"4520":["Warburg","","ok"],"4521":["Liebenau","","ok"],"4522":["Hofgeismar","","ok"],"4523":["Hann. Münden","","ok"],"4524":["Scheden","","ok"],"4525":["Friedland","","ok"],"4526":["Gleichen","","ok"],"4527":["Berlingerode","","ok"],"4528":["Worbis","","ok"],"4529":["Bleicherode","","ok"],"4530":["Nordhausen","","ok"],"4531":["Heringen (Helme)","Heringen (ST)","ok (Namensvarianten)"],"4532":["Kelbra","Kelbra (Kyffh.) (TH)","ok (Namensvarianten)"],"4533":["Sangerhausen","","ok"],"4534":["Allstedt","","ok"],"4535":["Erdeborn","","ok"],"4536":["Schraplau","","ok"],"4537":["Halle (Süd) a.d. Saale","","ok"],"4538":["Dieskau","Halle (Saale) Ost (SN)","ok (Namensvarianten)"],"4539":["Schkeuditz Nord","Zwochau (ST)","ok (Namensvarianten)"],"4540":["Zschortau","","ok"],"4541":["Eilenburg","","ok"],"4542":["Hohburg","","ok"],"4543":["Gneisenaustadt Schildau","","ok"],"4544":["Belgern","","ok"],"4545":["Mühlberg/Elbe","Mühlberg (Elbe) (SN)","ok (Namensvarianten)"],"4546":["Gröditz","","ok"],"4547":["Elsterwerda","","ok"],"4548":["Lauchhammer","","ok"],"4549":["Schwarzheide/N.L.","","ok"],"4550":["Lauta","","ok"],"4551":["Hoyerswerda","","ok"],"4552":["Weißkollm","","ok"],"4553":["Weißwasser/O.L. Süd","Weißwasser S (BB)","ok (Namensvarianten)"],"4554":["Weißkeißel","","ok"],"4555":["Pechern","","ok"],"4603":["Nettetal","","ok"],"4604":["Kempen","","ok"],"4605":["Krefeld","","ok"],"4606":["Düsseldorf-Kaiserswerth","","ok"],"4607":["Heiligenhaus","","ok"],"4608":["Velbert","","ok"],"4609":["Hattingen","","ok"],"4610":["Hagen","","ok"],"4611":["Hagen-Hohenlimburg","","ok"],"4612":["Iserlohn","","ok"],"4613":["Balve","","ok"],"4614":["Arnsberg","","ok"],"4615":["Meschede","","ok"],"4616":["Olsberg","","ok"],"4617":["Brilon","","ok"],"4618":["Adorf","","ok"],"4619":["Mengeringhausen","","ok"],"4620":["Bad Arolsen","","ok"],"4621":["Wolfhagen","","ok"],"4622":["Kassel West","","ok"],"4623":["Kassel Ost","","ok"],"4624":["Hedemünden","","ok"],"4625":["Witzenhausen","","ok"],"4626":["Heilbad Heiligenstadt","Heiligenstadt (NI)","ok (Namensvarianten)"],"4627":["Leinefelde","","ok"],"4628":["Leinefelde O","","ok"],"4629":["Menteroda","","ok"],"4630":["Schernberg","","ok"],"4631":["Sondershausen","","ok"],"4632":["Bad Frankenhausen (Kyffh.)","Frankenhausen (ST)","ok (Namensvarianten)"],"4633":["Artern (Unstrut)","Artern (ST)","ok (Namensvarianten)"],"4634":["Ziegelroda","","ok"],"4635":["Querfurt","","ok"],"4636":["Schafstädt","","ok"],"4637":["Merseburg (West)","","ok"],"4638":["Merseburg (Ost)","Leuna (SN)","ok (Namensvarianten)"],"4639":["Leipzig West","Schkeuditz (ST)","ok (Namensvarianten)"],"4640":["Leipzig","","ok"],"4641":["Taucha","","ok"],"4642":["Wurzen","","ok"],"4643":["Dahlen","","ok"],"4644":["Oschatz-Merkwitz","","ok"],"4645":["Riesa","","ok"],"4646":["Zeithain","","ok"],"4647":["Hirschfeld","","ok"],"4648":["Ortrand","","ok"],"4649":["Schwepnitz","","ok"],"4650":["Bernsdorf","","ok"],"4651":["Wittichenau","","ok"],"4652":["Lohsa","","ok"],"4653":["Klitten","","ok"],"4654":["Rietschen","","ok"],"4655":["Rothenburg/O..L.","","prüfen"],"4656":["Nieder-Neundorf Ost","","nicht in BKG-Übersicht"],"4702":["Elmpt","","ok"],"4703":["Schwalmtal","","ok"],"4704":["Viersen","","ok"],"4705":["Willich","","ok"],"4706":["Düsseldorf","","ok"],"4707":["Mettmann","","ok"],"4708":["Wuppertal-Elberfeld","","ok"],"4709":["Wuppertal-Barmen","","ok"],"4710":["Radevormwald","","ok"],"4711":["Lüdenscheid","","ok"],"4712":["Altena","","ok"],"4713":["Plettenberg","","ok"],"4714":["Endorf","","ok"],"4715":["Eslohe (Sauerland)","","ok"],"4716":["Bödefeld","","ok"],"4717":["Niedersfeld","","ok"],"4718":["Goddelsheim","","ok"],"4719":["Korbach","","ok"],"4720":["Waldeck","","ok"],"4721":["Naumburg","","ok"],"4722":["Niederzwehren","","ok"],"4723":["Ober-Kaufungen","","prüfen"],"4724":["Großalmerode","","ok"],"4725":["Bad Sooden-Allendorf","","ok"],"4726":["Grebendorf","","ok"],"4727":["Küllstedt","","ok"],"4728":["Mühlhausen (Thüringen)","","ok"],"4729":["Schlotheim","","ok"],"4730":["Ebeleben","","ok"],"4731":["Greußen","","ok"],"4732":["Kindelbrück","","ok"],"4733":["Oberheldrungen","","ok"],"4734":["Wiehe","","ok"],"4735":["Nebra","","ok"],"4736":["Freyburg (Unstrut)","","ok"],"4737":["Weißenfels","","ok"],"4738":["Lützen","Bad Dürrenberg (SN)","ok (Namensvarianten)"],"4739":["Zwenkau","Zwenkau-Großgörschen (ST)","ok (Namensvarianten)"],"4740":["Leipzig Süd","","ok"],"4741":["Naunhof","","ok"],"4742":["Grimma","","ok"],"4743":["Mutzschen","","ok"],"4744":["Oschatz","","ok"],"4745":["Riesa-Pausitz","","ok"],"4746":["Zehren","","ok"],"4747":["Großenhain","","ok"],"4748":["Radeburg","","ok"],"4749":["Königsbrück","","ok"],"4750":["Kamenz","","ok"],"4751":["Panschwitz-Kuckau","","ok"],"4752":["Großdubrau","","ok"],"4753":["Baruth","","ok"],"4754":["Niesky","","ok"],"4755":["Niesky Ost","","ok"],"4756":["Dreschka","","nicht in BKG-Übersicht"],"4802":["Wassenberg","","ok"],"4803":["Wegberg","","ok"],"4804":["Mönchengladbach","","ok"],"4805":["Korschenbroich","","ok"],"4806":["Neuss","","ok"],"4807":["Hilden","","ok"],"4808":["Solingen","","ok"],"4809":["Remscheid","","ok"],"4810":["Wipperfürth","","ok"],"4811":["Meinerzhagen","","ok"],"4812":["Herscheid","","ok"],"4813":["Attendorn","","ok"],"4814":["Lennestadt","","ok"],"4815":["Schmallenberg","","ok"],"4816":["Girkhausen","","ok"],"4817":["Winterberg","","ok"],"4818":["Medebach","","ok"],"4819":["Fürstenberg","","ok"],"4820":["Bad Wildungen","","ok"],"4821":["Fritzlar","","ok"],"4822":["Gudensberg","","ok"],"4823":["Melsungen","","ok"],"4824":["Hessisch Lichtenau","","ok"],"4825":["Waldkappel","","ok"],"4826":["Eschwege","","ok"],"4827":["Treffurt","","ok"],"4828":["Mühlhausen (Thüringen) S","","ok"],"4829":["Bad Langensalza","","ok"],"4830":["Großvargula","","ok"],"4831":["Gebesee","","ok"],"4832":["Sömmerda","","ok"],"4833":["Kölleda","","ok"],"4834":["Buttstädt","","ok"],"4835":["Eckartsberga","","ok"],"4836":["Naumburg an der Saale","Naumburg (Saale) (TH)","ok (Namensvarianten)"],"4837":["Stößen","","ok"],"4838":["Hohenmölsen","","ok"],"4839":["Groitzsch","Pegau und Hemmendorf-Predel (ST)","ok (Namensvarianten)"],"4840":["Borna","","ok"],"4841":["Borna Ost","","ok"],"4842":["Colditz","","ok"],"4843":["Leisnig","","ok"],"4844":["Döbeln","","ok"],"4845":["Lommatzsch","","ok"],"4846":["Meißen","","ok"],"4847":["Coswig","","ok"],"4848":["Dresden Nord","","ok"],"4849":["Radeberg","","ok"],"4850":["Großröhrsdorf","","ok"],"4851":["Bischofswerda","","ok"],"4852":["Bautzen","","ok"],"4853":["Weißenberg","","ok"],"4854":["Löbau Nord","","ok"],"4855":["Görlitz","","ok"],"4856":["Ludwigsdorf","","nicht in BKG-Übersicht"],"4901":["Selfkant","","ok"],"4902":["Heinsberg","","ok"],"4903":["Erkelenz","","ok"],"4904":["Titz","","ok"],"4905":["Grevenbroich","","ok"],"4906":["Pulheim","","ok"],"4907":["Leverkusen","","ok"],"4908":["Burscheid","","ok"],"4909":["Kürten","","ok"],"4910":["Lindlar","","ok"],"4911":["Gummersbach","","ok"],"4912":["Drolshagen","","ok"],"4913":["Olpe","","ok"],"4914":["Kirchhundem","","ok"],"4915":["Wingeshausen","","ok"],"4916":["Bad Berleburg","","ok"],"4917":["Battenberg","","ok"],"4918":["Frankenberg","","ok"],"4919":["Frankenau","","ok"],"4920":["Armsfeld","","ok"],"4921":["Borken","","ok"],"4922":["Homberg (Efze)","","ok"],"4923":["Altmorschen","","ok"],"4924":["Seifertshausen","","ok"],"4925":["Sontra","","ok"],"4926":["Herleshausen","","ok"],"4927":["Creuzburg","","ok"],"4928":["Mihla","","ok"],"4929":["Behringen","","ok"],"4930":["Gräfentonna","","ok"],"4931":["Erfurt NW","","ok"],"4932":["Erfurt N","","ok"],"4933":["Weimar NW","","ok"],"4934":["Weimar N","","ok"],"4935":["Apolda","","ok"],"4936":["Camburg","","ok"],"4937":["Osterfeld","","ok"],"4938":["Zeitz","","ok"],"4939":["Meuselwitz","","ok"],"4940":["Altenburg N","Altenburg Nord (SN)","ok (Namensvarianten)"],"4941":["Frohburg","","ok"],"4942":["Rochlitz","","ok"],"4943":["Geringswalde","","ok"],"4944":["Waldheim","","ok"],"4945":["Roßwein","","ok"],"4946":["Mohorn","","ok"],"4947":["Wilsdruff","","ok"],"4948":["Dresden","","ok"],"4949":["Dresden Ost","","ok"],"4950":["Stolpen","","ok"],"4951":["Neustadt i.Sa.","","ok"],"4952":["Wilthen","","ok"],"4953":["Ebersbach/Sa.","","ok"],"4954":["Löbau","","ok"],"4955":["Ostritz","","ok"],"5002":["Geilenkirchen","","ok"],"5003":["Linnich","","ok"],"5004":["Jülich","","ok"],"5005":["Bergheim","","ok"],"5006":["Frechen","","ok"],"5007":["Köln","","ok"],"5008":["Köln-Mülheim","","ok"],"5009":["Overath","","ok"],"5010":["Engelskirchen","","ok"],"5011":["Wiehl","","ok"],"5012":["Reichshof","","ok"],"5013":["Kreuztal","","ok"],"5014":["Hilchenbach","","ok"],"5015":["Erndtebrück","","ok"],"5016":["Bad Laasphe","","ok"],"5017":["Biedenkopf","","ok"],"5018":["Wetter","","ok"],"5019":["Gemünden","","ok"],"5020":["Gilserberg","","ok"],"5021":["Ziegenhain","","ok"],"5022":["Schwarzenborn","","ok"],"5023":["Ludwigseck","","ok"],"5024":["Rotenburg","","ok"],"5025":["Hönebach","","ok"],"5026":["Berka (Werra)","Berka (HE)","ok (Namensvarianten)"],"5027":["Eisenach","","ok"],"5028":["Eisenach O","","ok"],"5029":["Waltershausen N","","ok"],"5030":["Gotha","","ok"],"5031":["Erfurt W","","ok"],"5032":["Erfurt","","ok"],"5033":["Weimar","","ok"],"5034":["Weimar O","","ok"],"5035":["Jena","","ok"],"5036":["Bürgel","","ok"],"5037":["Eisenberg","","ok"],"5038":["Gera N","Langenberg (ST)","ok (Namensvarianten)"],"5039":["Kayna","","ok"],"5040":["Altenburg","","ok"],"5041":["Langenleuba-Niederhain","","ok"],"5042":["Burgstädt","","ok"],"5043":["Mittweida","","ok"],"5044":["Frankenberg/Sa.","","ok"],"5045":["Freiberg West","","ok"],"5046":["Freiberg","","ok"],"5047":["Freital","","ok"],"5048":["Kreischa","","ok"],"5049":["Pirna","","ok"],"5050":["Bad Schandau","","ok"],"5051":["Sebnitz","","ok"],"5052":["Hinterhermsdorf","","ok"],"5053":["Neugersdorf","","ok"],"5054":["Zittau Nord","","ok"],"5055":["Hirschfelde","","ok"],"5102":["Herzogenrath","","ok"],"5103":["Eschweiler","","ok"],"5104":["Düren","","ok"],"5105":["Nörvenich","","ok"],"5106":["Kerpen","","ok"],"5107":["Brühl","","ok"],"5108":["Köln-Porz","","ok"],"5109":["Lohmar","","ok"],"5110":["Ruppichteroth","","ok"],"5111":["Waldbröl","","ok"],"5112":["Morsbach","","ok"],"5113":["Freudenberg","","ok"],"5114":["Siegen","","ok"],"5115":["Ewersbach","","ok"],"5116":["Eibelshausen","","ok"],"5117":["Buchenau","","ok"],"5118":["Marburg","","ok"],"5119":["Kirchhain","","ok"],"5120":["Neustadt","","ok"],"5121":["Schrecksbach","","ok"],"5122":["Neukirchen","","ok"],"5123":["Niederaula","","ok"],"5124":["Bad Hersfeld","","ok"],"5125":["Friedewald","","ok"],"5126":["Vacha","","ok"],"5127":["Bad Salzungen","","ok"],"5128":["Ruhla","","ok"],"5129":["Waltershausen","","ok"],"5130":["Ohrdruf","","ok"],"5131":["Arnstadt","","ok"],"5132":["Marlishausen","","ok"],"5133":["Kranichfeld","","ok"],"5134":["Blankenhain","","ok"],"5135":["Jena S","","ok"],"5136":["Stadtroda","","ok"],"5137":["Münchenbernsdorf","","ok"],"5138":["Gera","","ok"],"5139":["Ronneburg","","ok"],"5140":["Crimmitschau","","ok"],"5141":["Glauchau","","ok"],"5142":["Hohenstein-Ernstthal","","prüfen"],"5143":["Chemnitz","","ok"],"5144":["Flöha","","ok"],"5145":["Brand-Erbisdorf","","ok"],"5146":["Lichtenberg/Erzgeb.","","ok"],"5147":["Frauenstein","","ok"],"5148":["Dippoldiswalde","","ok"],"5149":["Kurort Bad Gottleuba","","ok"],"5150":["Rosenthal-Bielatal","","ok"],"5151":["Reinhardtsdorf-Schöna","","ok"],"5152":["Raumberg","","ok"],"5153":["Waltersdorf","","ok"],"5154":["Zittau","","ok"],"5202":["Aachen","","ok"],"5203":["Stolberg (Rheinland)","","ok"],"5204":["Kreuzau","","ok"],"5205":["Vettweiß","","ok"],"5206":["Erp","","ok"],"5207":["Bornheim","","ok"],"5208":["Bonn","","ok"],"5209":["Siegburg","","ok"],"5210":["Eitorf","","ok"],"5211":["Weyerbusch","","ok"],"5212":["Wissen","","ok"],"5213":["Betzdorf","","ok"],"5214":["Burbach","","ok"],"5215":["Dillenburg","","ok"],"5216":["Oberscheld","","ok"],"5217":["Gladenbach","","ok"],"5218":["Niederwalgern","","ok"],"5219":["Amöneburg","","ok"],"5220":["Kirtorf","","ok"],"5221":["Alsfeld","","ok"],"5222":["Grebenau","","ok"],"5223":["Queck","","ok"],"5224":["Eiterfeld","","ok"],"5225":["Geisa","","ok"],"5226":["Stadtlengsfeld","","ok"],"5227":["Bad Salzungen S","","ok"],"5228":["Kurort Schmalkalden","","ok"],"5229":["Tambach-Dietharz (Thür. Wald)","","ok"],"5230":["Oberhof","","ok"],"5231":["Ilmenau N","","ok"],"5232":["Stadtilm","","ok"],"5233":["Rudolstadt W","","ok"],"5234":["Rudolstadt","","ok"],"5235":["Pößneck N","","ok"],"5236":["Neustadt (Orla)","","ok"],"5237":["Triptis","","ok"],"5238":["Weida","","ok"],"5239":["Teichwolframsdorf","Teichwolfsramsdorf (TH)","ok (Namensvarianten)"],"5240":["Zwickau","","ok"],"5241":["Zwickau Ost","","ok"],"5242":["Stollberg/Erzgeb.","","ok"],"5243":["Chemnitz Süd","","ok"],"5244":["Zschopau","","ok"],"5245":["Lengefeld","","prüfen"],"5246":["Sayda","","ok"],"5247":["Rechenberg-Bienenmühle","","prüfen"],"5248":["Altenberg","","ok"],"5249":["Liebenau","","ok"],"5303":["Roetgen","","ok"],"5304":["Nideggen","","ok"],"5305":["Zülpich","","ok"],"5306":["Euskirchen","","ok"],"5307":["Rheinbach","","ok"],"5308":["Bonn-Bad Godesberg","","ok"],"5309":["Königswinter","","ok"],"5310":["Asbach","","ok"],"5311":["Altenkirchen","","ok"],"5312":["Hachenburg","","ok"],"5313":["Bad Marienberg","","ok"],"5314":["Rennerod","","ok"],"5315":["Herborn","","ok"],"5316":["Ballersbach","","ok"],"5317":["Rodheim-Bieber","","ok"],"5318":["Allendorf","","ok"],"5319":["Londorf","","ok"],"5320":["Burg-Gemünden","","ok"],"5321":["Storndorf","","ok"],"5322":["Lauterbach","","ok"],"5323":["Schlitz","","ok"],"5324":["Hünfeld","","ok"],"5325":["Spahl","","ok"],"5326":["Tann (Rhön)","Tann (HE)","ok (Namensvarianten)"],"5327":["Oepfershausen","","ok"],"5328":["Wasungen","","ok"],"5329":["Suhl W","","ok"],"5330":["Suhl","","ok"],"5331":["Ilmenau","","prüfen"],"5332":["Königsee","","ok"],"5333":["Bad Blankenburg","","ok"],"5334":["Saalfeld (Saale)","","ok"],"5335":["Pößneck","","ok"],"5336":["Knau","","ok"],"5337":["Zeulenroda","","ok"],"5338":["Triebes","","ok"],"5339":["Greiz","","ok"],"5340":["Zwickau Süd","","ok"],"5341":["Wilkau-Haßlau","","ok"],"5342":["Zwönitz","","ok"],"5343":["Ehrenfriedersdorf","","ok"],"5344":["Marienberg","","ok"],"5345":["Zöblitz","","ok"],"5346":["Olbernhau","","prüfen"],"5347":["Deutscheinsiedel Ost","","prüfen"],"5403":["Monschau","","ok"],"5404":["Schleiden","","ok"],"5405":["Mechernich","","ok"],"5406":["Bad Münstereifel","","ok"],"5407":["Altenahr","","ok"],"5408":["Bad Neuenahr-Ahrweiler","","ok"],"5409":["Linz am Rhein","","ok"],"5410":["Waldbreitbach","","ok"],"5411":["Dierdorf","","ok"],"5412":["Selters (Ww.)","","ok"],"5413":["Westerburg","","ok"],"5414":["Mengerskirchen","","ok"],"5415":["Merenberg","","ok"],"5416":["Braunfels","","ok"],"5417":["Wetzlar","","ok"],"5418":["Gießen","","ok"],"5419":["Laubach","","ok"],"5420":["Schotten","","ok"],"5421":["Ulrichstein","","ok"],"5422":["Herbstein","","ok"],"5423":["Großenlüder","","ok"],"5424":["Fulda","","ok"],"5425":["Kleinsassen","","ok"],"5426":["Hilders","","ok"],"5427":["Helmershausen","","ok"],"5428":["Meiningen","","ok"],"5429":["Themar","","ok"],"5430":["Suhl S","","ok"],"5431":["Schönbrunn","","ok"],"5432":["Neuhaus am Rennweg","","ok"],"5433":["Gräfenthal","","ok"],"5434":["Leutenberg","","ok"],"5435":["Liebengrün","","ok"],"5436":["Schleiz","","ok"],"5437":["Mühltroff","","ok"],"5438":["Plauen Nord","Plauen N (TH)","ok (Namensvarianten)"],"5439":["Treuen","","ok"],"5440":["Auerbach/Vogtl.","","ok"],"5441":["Schneeberg","","ok"],"5442":["Aue","","ok"],"5443":["Annaberg-Buchholz-West","","prüfen"],"5444":["Annaberg-Buchholz","","ok"],"5445":["Reitzenhain","","ok"],"5504":["Hellenthal","","ok"],"5505":["Blankenheim","","ok"],"5506":["Aremberg","","ok"],"5507":["Hönningen","","ok"],"5508":["Kempenich","","ok"],"5509":["Burgbrohl","","ok"],"5510":["Neuwied","","ok"],"5511":["Bendorf","","ok"],"5512":["Montabaur","","ok"],"5513":["Meudt","","ok"],"5514":["Hadamar","","ok"],"5515":["Weilburg","","ok"],"5516":["Weilmünster","","ok"],"5517":["Cleeberg","","ok"],"5518":["Butzbach","","ok"],"5519":["Hungen","","ok"],"5520":["Nidda","","ok"],"5521":["Gedern","","ok"],"5522":["Freiensteinau","","ok"],"5523":["Neuhof","","ok"],"5524":["Weyhers","","ok"],"5525":["Gersfeld","Gersfeld (Rhön) (BY)","ok (Namensvarianten)"],"5526":["Bischofsheim a.d.Rhön","Bischofsheim (HE)","ok (Namensvarianten)"],"5527":["Mellrichstadt","","ok"],"5528":["Rentwertshausen","","ok"],"5529":["Römhild N","","ok"],"5530":["Hildburghausen","","ok"],"5531":["Eisfeld","","ok"],"5532":["Steinach","","ok"],"5533":["Tettau","","ok"],"5534":["Lehesten","","ok"],"5535":["Moorbad Lobenstein","","ok"],"5536":["Hirschberg","","ok"],"5537":["Gefell","","ok"],"5538":["Plauen","","ok"],"5539":["Oelsnitz/Vogtl.","","ok"],"5540":["Falkenstein/Vogtl.","","ok"],"5541":["Eibenstock","","ok"],"5542":["Johanngeorgenstadt","","ok"],"5543":["Kurort Oberwiesenthal","","ok"],"5544":["Bärenstein","","ok"],"5603":["Wischeid","","ok"],"5604":["Hallschlag","","ok"],"5605":["Stadtkyll","","ok"],"5606":["Üxheim","","ok"],"5607":["Adenau","","ok"],"5608":["Virneburg","","ok"],"5609":["Mayen","","ok"],"5610":["Bassenheim","","ok"],"5611":["Koblenz","","ok"],"5612":["Bad Ems","","ok"],"5613":["Schaumburg","","ok"],"5614":["Limburg","Limburg a. d. Lahn (RP)","ok (Namensvarianten)"],"5615":["Villmar","","ok"],"5616":["Grävenwiesbach","","ok"],"5617":["Usingen","","ok"],"5618":["Friedberg","","ok"],"5619":["Staden","","ok"],"5620":["Ortenberg","","ok"],"5621":["Wenings","","ok"],"5622":["Steinau","","ok"],"5623":["Schlüchtern","","ok"],"5624":["Bad Brückenau","","ok"],"5625":["Wildflecken","","ok"],"5626":["Sandberg","","ok"],"5627":["Bad Neustadt a.d.Saale","","ok"],"5628":["Bad Königshfn i.Grabfeld","Bad Königshofen i. Grabf. (TH)","ok (Namensvarianten)"],"5629":["Römhild","","ok"],"5630":["Rodach bei Coburg","Bad Rodach (BY)","ok (Namensvarianten)"],"5631":["Meeder","","ok"],"5632":["Neustadt bei Coburg","Neustadt b.Coburg (BY)","ok (Namensvarianten)"],"5633":["Sonneberg","","ok"],"5634":["Teuschnitz","","ok"],"5635":["Nordhalben","","ok"],"5636":["Naila","","ok"],"5637":["Hof","","ok"],"5638":["Triebel/Vogtl.","Triebel (Vogtland) (BY)","ok (Namensvarianten)"],"5639":["Adorf/Vogtl.","","ok"],"5640":["Klingenthal/Sa.","","ok"],"5641":["Klingenthal/Sa.-Aschberg","","prüfen"],"5703":["Bleialf","","ok"],"5704":["Prüm","","ok"],"5705":["Gerolstein","","ok"],"5706":["Hillesheim","","ok"],"5707":["Kelberg","","ok"],"5708":["Kaisersesch","","ok"],"5709":["Kaifenheim","","ok"],"5710":["Münstermaifeld","","ok"],"5711":["Boppard","","ok"],"5712":["Dachsenhausen","","ok"],"5713":["Katzenelnbogen","","ok"],"5714":["Kettenbach","","ok"],"5715":["Idstein","","ok"],"5716":["Oberreifenberg","","ok"],"5717":["Bad Homburg","","ok"],"5718":["Ilbenstadt","","ok"],"5719":["Altenstadt","","ok"],"5720":["Büdingen","","ok"],"5721":["Gelnhausen","","ok"],"5722":["Salmünster","","ok"],"5723":["Altengronau","","ok"],"5724":["Zeitlofs","","ok"],"5725":["Stangenroth","","ok"],"5726":["Bad Kissingen Nord","","ok"],"5727":["Münnerstadt","","ok"],"5728":["Oberlauringen","","ok"],"5729":["Alsleben","","ok"],"5730":["Heldburg","","ok"],"5731":["Coburg","","ok"],"5732":["Sonnefeld","","ok"],"5733":["Kronach","","ok"],"5734":["Wallenfels","","ok"],"5735":["Schwarzenbach a.Wald","","ok"],"5736":["Helmbrechts","","ok"],"5737":["Schwarzenbach a.d.Saale","","ok"],"5738":["Rehau","","ok"],"5739":["Bad Elster","","ok"],"5740":["Wernitzgrün","","ok"],"5802":["Sevenig (Our)","","ok"],"5803":["Leidenborn","","ok"],"5804":["Schönecken","","ok"],"5805":["Mürlenbach","","ok"],"5806":["Daun","","ok"],"5807":["Gillenfeld","","ok"],"5808":["Cochem","","ok"],"5809":["Treis-Karden","","ok"],"5810":["Dommershausen","","ok"],"5811":["Kestert","","ok"],"5812":["St.Goarshausen","","ok"],"5813":["Nastätten","","ok"],"5814":["Bad Schwalbach","","ok"],"5815":["Wehen","","ok"],"5816":["Königstein","","ok"],"5817":["Frankfurt West","","ok"],"5818":["Frankfurt Ost","","ok"],"5819":["Hanau","","ok"],"5820":["Langenselbold","","ok"],"5821":["Bieber","","ok"],"5822":["Wiesen","","ok"],"5823":["Burgsinn","","ok"],"5824":["Gräfendorf","","ok"],"5825":["Hammelburg","","ok"],"5826":["Bad Kissingen Süd","","ok"],"5827":["Maßbach","","ok"],"5828":["Stadtlauringen","","ok"],"5829":["Hofheim i.UFr.","","ok"],"5830":["Pfarrweisach","","ok"],"5831":["Seßlach","","ok"],"5832":["Lichtenfels","","ok"],"5833":["Burgkunstadt","","ok"],"5834":["Kulmbach","","ok"],"5835":["Stadtsteinach","","ok"],"5836":["Münchberg","","ok"],"5837":["Weißenstadt","","ok"],"5838":["Selb","","ok"],"5839":["Schönberg","","ok"],"5902":["Dasburg","","ok"],"5903":["Neuerburg","","ok"],"5904":["Waxweiler","","ok"],"5905":["Kyllburg","","ok"],"5906":["Manderscheid","","ok"],"5907":["Hasborn","","ok"],"5908":["Alf","","ok"],"5909":["Zell (Mosel)","","ok"],"5910":["Kastellaun","","ok"],"5911":["Kisselbach","","ok"],"5912":["Kaub","","ok"],"5913":["Presberg","","ok"],"5914":["Eltville","Eltville am Rhein (RP)","ok (Namensvarianten)"],"5915":["Wiesbaden","","ok"],"5916":["Hochheim","","ok"],"5917":["Kelsterbach","","ok"],"5918":["Neu-Isenburg","","ok"],"5919":["Seligenstadt","","ok"],"5920":["Alzenau","","ok"],"5921":["Schöllkrippen","","ok"],"5922":["Frammersbach","","ok"],"5923":["Rieneck","","ok"],"5924":["Gemünden a.Main","","ok"],"5925":["Gauaschach","","ok"],"5926":["Geldersheim","","ok"],"5927":["Schweinfurt","","ok"],"5928":["Obertheres","","ok"],"5929":["Haßfurt","","ok"],"5930":["Ebern","","ok"],"5931":["Ebensfeld","","ok"],"5932":["Uetzing","","ok"],"5933":["Weismain","","ok"],"5934":["Thurnau","","ok"],"5935":["Marktschorgast","","ok"],"5936":["Bad Berneck i.Fichtelgeb.","","ok"],"5937":["Fichtelberg","","ok"],"5938":["Marktredwitz","","ok"],"5939":["Waldsassen","","ok"],"5940":["Hatzenreuth","","ok"],"6002":["Gemünd","","ok"],"6003":["Mettendorf","","ok"],"6004":["Oberweis","","ok"],"6005":["Bitburg","","ok"],"6006":["Landscheid","","ok"],"6007":["Wittlich","","ok"],"6008":["Bernkastel-Kues","","ok"],"6009":["Sohren","","ok"],"6010":["Kirchberg (Hunsrück)","","ok"],"6011":["Simmern (Hunsrück)","","ok"],"6012":["Stromberg","","ok"],"6013":["Bingen","","ok"],"6014":["Ingelheim a. Rhein","Ingelheim (HE)","ok (Namensvarianten)"],"6015":["Mainz","","ok"],"6016":["Groß-Gerau","","ok"],"6017":["Mörfelden","","ok"],"6018":["Langen","","ok"],"6019":["Babenhausen","","ok"],"6020":["Aschaffenburg","","ok"],"6021":["Haibach","","ok"],"6022":["Rothenbuch","","ok"],"6023":["Lohr a.Main","","ok"],"6024":["Karlstadt","","ok"],"6025":["Arnstein","","ok"],"6026":["Werneck","","ok"],"6027":["Grettstadt","","ok"],"6028":["Gerolzhofen","","ok"],"6029":["Knetzgau","","ok"],"6030":["Eltmann","","ok"],"6031":["Bamberg Nord","","ok"],"6032":["Scheßlitz","","ok"],"6033":["Hollfeld","","ok"],"6034":["Mistelgau","","ok"],"6035":["Bayreuth","","ok"],"6036":["Weidenberg","","ok"],"6037":["Ebnath","","ok"],"6038":["Waldershof","","ok"],"6039":["Mitterteich","","ok"],"6040":["Neualbenreuth","","ok"],"6041":["Mähring","","ok"],"6103":["Wallendorf","","ok"],"6104":["Bollendorf","","ok"],"6105":["Welschbillig","","ok"],"6106":["Schweich","","ok"],"6107":["Neumagen-Dhron","","ok"],"6108":["Morbach","","ok"],"6109":["Hottenbach","","ok"],"6110":["Gemünden","","ok"],"6111":["Pferdsfeld","","ok"],"6112":["Waldböckelheim","","ok"],"6113":["Bad Kreuznach","","ok"],"6114":["Wörrstadt","","ok"],"6115":["Undenheim","","ok"],"6116":["Oppenheim","","ok"],"6117":["Darmstadt West","","ok"],"6118":["Darmstadt Ost","","ok"],"6119":["Groß-Umstadt","","ok"],"6120":["Obernburg","Obernburg a.Main (BY)","ok (Namensvarianten)"],"6121":["Heimbuchenthal","","ok"],"6122":["Bischbrunn","","ok"],"6123":["Marktheidenfeld","","ok"],"6124":["Remlingen","","ok"],"6125":["Würzburg Nord","","ok"],"6126":["Dettelbach","","ok"],"6127":["Volkach","","ok"],"6128":["Ebrach","","ok"],"6129":["Burgwindheim","","ok"],"6130":["Burgebrach","","ok"],"6131":["Bamberg Süd","","ok"],"6132":["Buttenheim","","ok"],"6133":["Muggendorf","","ok"],"6134":["Waischenfeld","","ok"],"6135":["Creußen","","ok"],"6136":["Kirchenlaibach","","ok"],"6137":["Kemnath","","ok"],"6138":["Erbendorf","","ok"],"6139":["Falkenberg","","ok"],"6140":["Tirschenreuth","","ok"],"6141":["Treppenstein","","ok"],"6204":["Langsur","","ok"],"6205":["Trier","","ok"],"6206":["Trier-Pfalzel","","ok"],"6207":["Beuren (Hochwald)","","ok"],"6208":["Morscheid-Riedenburg","","ok"],"6209":["Idar-Oberstein","","ok"],"6210":["Kirn","","ok"],"6211":["Sobernheim","","ok"],"6212":["Meisenheim","","ok"],"6213":["Kriegsfeld","","ok"],"6214":["Alzey","","ok"],"6215":["Gau-Odernheim","","ok"],"6216":["Gernsheim","","ok"],"6217":["Zwingenberg","","ok"],"6218":["Neunkirchen","","ok"],"6219":["Brensbach","","ok"],"6220":["Wörth","Wörth am Main (BY)","ok (Namensvarianten)"],"6221":["Miltenberg","","ok"],"6222":["Stadtprozelten","","ok"],"6223":["Wertheim","","ok"],"6224":["Helmstadt","","ok"],"6225":["Würzburg Süd","","ok"],"6226":["Kitzingen","","ok"],"6227":["Iphofen","","ok"],"6228":["Wiesentheid","","ok"],"6229":["Schlüsselfeld","","ok"],"6230":["Höchstadt a.d.Aisch","","ok"],"6231":["Adelsdorf","","ok"],"6232":["Forchheim","","ok"],"6233":["Ebermannstadt","","ok"],"6234":["Pottenstein","","ok"],"6235":["Pegnitz","","ok"],"6236":["Eschenbach i.d.OPf.","","ok"],"6237":["Grafenwöhr","","ok"],"6238":["Parkstein","","ok"],"6239":["Neustadt a.d.Waldnaab","","ok"],"6240":["Flossenbürg","","ok"],"6304":["Wincheringen","","ok"],"6305":["Saarburg","","ok"],"6306":["Kell","Kell am See (SL)","ok (Namensvarianten)"],"6307":["Hermeskeil","","ok"],"6308":["Birkenfeld West","","ok"],"6309":["Birkenfeld Ost","","ok"],"6310":["Baumholder","","ok"],"6311":["Lauterecken","","ok"],"6312":["Rockenhausen","","ok"],"6313":["Dannenfels","","ok"],"6314":["Kirchheimbolanden","","ok"],"6315":["Worms-Pfeddersheim","","ok"],"6316":["Worms","","ok"],"6317":["Bensheim","","ok"],"6318":["Lindenfels","","ok"],"6319":["Erbach","","ok"],"6320":["Michelstadt","","ok"],"6321":["Amorbach","","ok"],"6322":["Hardheim","","ok"],"6323":["Tauberbischofsheim-West","","ok"],"6324":["Tauberbischofsheim-Ost","","ok"],"6325":["Giebelstadt","","ok"],"6326":["Ochsenfurt","","ok"],"6327":["Markt Einersheim","","ok"],"6328":["Scheinfeld","","ok"],"6329":["Baudenbach","","ok"],"6330":["Uehlfeld","","ok"],"6331":["Röttenbach","","ok"],"6332":["Erlangen Nord","","ok"],"6333":["Gräfenberg","","ok"],"6334":["Betzenstein","","ok"],"6335":["Auerbach i.d.OPf.","","ok"],"6336":["Vilseck","","ok"],"6337":["Kaltenbrunn","","ok"],"6338":["Weiden i.d.OPf.","","ok"],"6339":["Waldthurn","","ok"],"6340":["Vohenstrauß","","ok"],"6341":["Frankenreuth","","ok"],"6404":["Kirf","","ok"],"6405":["Freudenburg","","ok"],"6406":["Losheim","","ok"],"6407":["Wadern","","ok"],"6408":["Nohfelden","","ok"],"6409":["Freisen","","ok"],"6410":["Kusel","","ok"],"6411":["Wolfstein","","ok"],"6412":["Otterberg","","ok"],"6413":["Winnweiler","","ok"],"6414":["Grünstadt West","","ok"],"6415":["Grünstadt Ost","","ok"],"6416":["Mannheim Nordwest","","ok"],"6417":["Mannheim-Nordost","","ok"],"6418":["Weinheim","","ok"],"6419":["Beerfelden","","ok"],"6420":["Mudau-Schlossau","Mudau-Schloßau (BW)","ok (Namensvarianten)"],"6421":["Buchen (Odenwald)","Buchen (HE)","ok (Namensvarianten)"],"6422":["Walldürn","","ok"],"6423":["Ahorn","","ok"],"6424":["Lauda-Königshofen","","ok"],"6425":["Röttingen","","ok"],"6426":["Aub","","ok"],"6427":["Uffenheim","","ok"],"6428":["Bad Windsheim","","ok"],"6429":["Neustadt a.d.Aisch","","ok"],"6430":["Emskirchen","","ok"],"6431":["Herzogenaurach","","ok"],"6432":["Erlangen Süd","","ok"],"6433":["Lauf a.d.Pegnitz","","ok"],"6434":["Hersbruck","","ok"],"6435":["Pommelsbrunn","","ok"],"6436":["Sulzbach-Rosenberg Nord","","ok"],"6437":["Hirschau","","ok"],"6438":["Schnaittenbach","","ok"],"6439":["Tännesberg","","ok"],"6440":["Moosbach","","ok"],"6441":["Eslarn","","ok"],"6504":["Perl","","ok"],"6505":["Merzig","","ok"],"6506":["Reimsbach","","ok"],"6507":["Lebach","","ok"],"6508":["Ottweiler","","ok"],"6509":["St.Wendel","","ok"],"6510":["Glan-Münchweiler","","ok"],"6511":["Landstuhl","","ok"],"6512":["Kaiserslautern","","ok"],"6513":["Hochspeyer","","ok"],"6514":["Bad Dürkheim West","","ok"],"6515":["Bad Dürkheim Ost","","ok"],"6516":["Mannheim Südwest","","ok"],"6517":["Mannheim-Südost","","ok"],"6518":["Heidelberg-Nord","","ok"],"6519":["Eberbach","","ok"],"6520":["Waldbrunn","","ok"],"6521":["Limbach","","ok"],"6522":["Adelsheim","","ok"],"6523":["Boxberg","","ok"],"6524":["Bad Mergentheim","","ok"],"6525":["Weikersheim","","ok"],"6526":["Creglingen","","ok"],"6527":["Burgbernheim","","ok"],"6528":["Marktbergel","","ok"],"6529":["Markt Erlbach","","ok"],"6530":["Langenzenn","","ok"],"6531":["Fürth","","ok"],"6532":["Nürnberg","","ok"],"6533":["Röthenbach a.d.Pegnitz","","ok"],"6534":["Happurg","","ok"],"6535":["Alfeld","","ok"],"6536":["Sulzbach-Rosenberg Süd","","ok"],"6537":["Amberg","","ok"],"6538":["Schmidgaden","","ok"],"6539":["Nabburg","","ok"],"6540":["Oberviechtach","","ok"],"6541":["Tiefenbach","","ok"],"6542":["Untergrafenried","","ok"],"6605":["Hemmersdorf","","ok"],"6606":["Saarlouis","","ok"],"6607":["Heusweiler","","ok"],"6608":["Illingen","","ok"],"6609":["Neunkirchen","Neunkirchen (Saar) (RP)","ok (Namensvarianten)"],"6610":["Homburg","","ok"],"6611":["Hermersberg","","ok"],"6612":["Trippstadt","","ok"],"6613":["Elmstein","","ok"],"6614":["Neustadt an der Weinstraße","","ok"],"6615":["Haßloch","","ok"],"6616":["Speyer","","ok"],"6617":["Schwetzingen","","ok"],"6618":["Heidelberg-Süd","","ok"],"6619":["Helmstadt-Bargen","","ok"],"6620":["Mosbach","","ok"],"6621":["Billigheim","","ok"],"6622":["Möckmühl","","ok"],"6623":["Ingelfingen","","ok"],"6624":["Mulfingen","","ok"],"6625":["Schrozberg-West","","ok"],"6626":["Schrozberg Ost","","ok"],"6627":["Rothenburg ob der Tauber","","ok"],"6628":["Leutershausen","","ok"],"6629":["Ansbach Nord","","ok"],"6630":["Heilsbronn","","ok"],"6631":["Roßtal","","ok"],"6632":["Schwabach","","ok"],"6633":["Feucht","","ok"],"6634":["Altdorf b. Nürnberg","","ok"],"6635":["Lauterhofen","","ok"],"6636":["Kastl","","ok"],"6637":["Rieden","","ok"],"6638":["Schwandorf","","ok"],"6639":["Wackersdorf","","ok"],"6640":["Neunburg vorm Wald","","ok"],"6641":["Rötz","","ok"],"6642":["Waldmünchen","","ok"],"6643":["Furth im Wald","","ok"],"6705":["Ittersdorf","","ok"],"6706":["Ludweiler-Warndt","","ok"],"6707":["Saarbrücken","","ok"],"6708":["St.Johann","","ok"],"6709":["Blieskastel","","ok"],"6710":["Zweibrücken","","ok"],"6711":["Pirmasens Nord","","ok"],"6712":["Merzalben","","ok"],"6713":["Annweiler a. Trifels","","ok"],"6714":["Edenkoben","","ok"],"6715":["Zeiskam","","ok"],"6716":["Germersheim","","ok"],"6717":["Waghäusel","","ok"],"6718":["Wiesloch","","ok"],"6719":["Sinsheim","","ok"],"6720":["Bad Rappenau","","ok"],"6721":["Bad Friedrichshall","","ok"],"6722":["Hardthausen am Kocher","","ok"],"6723":["Öhringen","","ok"],"6724":["Künzelsau","","ok"],"6725":["Gerabronn","","ok"],"6726":["Rot am See","","ok"],"6727":["Schillingsfürst","","ok"],"6728":["Herrieden","","ok"],"6729":["Ansbach Süd","","ok"],"6730":["Windsbach","","ok"],"6731":["Abenberg","","ok"],"6732":["Roth","","ok"],"6733":["Allersberg","","ok"],"6734":["Neumarkt i.d.OPf.","","ok"],"6735":["Deining","","ok"],"6736":["Velburg","","ok"],"6737":["Schmidmühlen","","ok"],"6738":["Burglengenfeld","","ok"],"6739":["Bruck i.d.OPf.","","ok"],"6740":["Neukirchen-Balbini","","ok"],"6741":["Cham West","","ok"],"6742":["Cham Ost","","ok"],"6743":["Neukirchen b.Hl.Blut","","ok"],"6744":["Rittsteig","","ok"],"6806":["Lauterbach im Warndt","","ok"],"6807":["Emmersweiler","","ok"],"6808":["Kleinblittersdorf","","prüfen"],"6809":["Gersheim","","ok"],"6810":["Hornbach","","ok"],"6811":["Pirmasens Süd","","ok"],"6812":["Dahn","","ok"],"6813":["Bad Bergzabern","","ok"],"6814":["Landau i. d. Pfalz","","ok"],"6815":["Herxheim bei Landau","","ok"],"6816":["Graben-Neudorf","","ok"],"6817":["Bruchsal","","ok"],"6818":["Kraichtal","","ok"],"6819":["Eppingen","","ok"],"6820":["Schwaigern","","ok"],"6821":["Heilbronn","","ok"],"6822":["Obersulm","","ok"],"6823":["Pfedelbach","","ok"],"6824":["Schwäbisch Hall","","ok"],"6825":["Ilshofen","","ok"],"6826":["Crailsheim","","ok"],"6827":["Feuchtwangen West","","ok"],"6828":["Feuchtwangen Ost","","ok"],"6829":["Ornbau","","ok"],"6830":["Gunzenhausen","","ok"],"6831":["Spalt","","ok"],"6832":["Heideck","","ok"],"6833":["Hilpoltstein","","ok"],"6834":["Berching","","ok"],"6835":["Wissing","","ok"],"6836":["Parsberg","","ok"],"6837":["Kallmünz","","ok"],"6838":["Regenstauf","","ok"],"6839":["Nittenau","","ok"],"6840":["Reichenbach","","ok"],"6841":["Roding","","ok"],"6842":["Miltach","","ok"],"6843":["Bad Kötzting","","ok"],"6844":["Lam","","ok"],"6845":["Bayer. Eisenstein","","ok"],"6911":["Ludwigswinkel","","ok"],"6912":["Fischbach b. Dahn","","ok"],"6913":["Oberotterbach","","ok"],"6914":["Schaidt","","ok"],"6915":["Wörth am Rhein","Wörth a. Rhein (BW)","ok (Namensvarianten)"],"6916":["Karlsruhe-Nord","","ok"],"6917":["Weingarten (Baden)","","ok"],"6918":["Bretten","","ok"],"6919":["Güglingen","","ok"],"6920":["Brackenheim","","ok"],"6921":["Großbottwar","","ok"],"6922":["Wüstenrot","","ok"],"6923":["Sulzbach a.d. Murr","","ok"],"6924":["Gaildorf","","ok"],"6925":["Obersontheim","","ok"],"6926":["Stimpfach","","ok"],"6927":["Dinkelsbühl","","ok"],"6928":["Weiltingen","","ok"],"6929":["Wassertrüdingen","","ok"],"6930":["Heidenheim","","ok"],"6931":["Weißenburg i.Bay.","","ok"],"6932":["Nennslingen","","ok"],"6933":["Thalmässing","","ok"],"6934":["Beilngries","","ok"],"6935":["Dietfurt a.d.Altmühl","","ok"],"6936":["Hemau","","ok"],"6937":["Laaber","","ok"],"6938":["Regensburg","","ok"],"6939":["Donaustauf","","ok"],"6940":["Wörth a.d. Donau","","ok"],"6941":["Stallwang","","ok"],"6942":["Sankt Englmar","","ok"],"6943":["Viechtach","","ok"],"6944":["Bodenmais","","ok"],"6945":["Zwiesel","","ok"],"6946":["Hirschbach","","ok"],"7014":["Scheibenhardt","","ok"],"7015":["Rheinstetten","","ok"],"7016":["Karlsruhe-Süd","","ok"],"7017":["Pfinztal","","ok"],"7018":["Pforzheim-Nord","","ok"],"7019":["Mühlacker","","ok"],"7020":["Bietigheim-Bissingen","","ok"],"7021":["Marbach am Neckar","","ok"],"7022":["Backnang","","ok"],"7023":["Murrhardt","","ok"],"7024":["Gschwend","","ok"],"7025":["Sulzbach-Laufen","","ok"],"7026":["Ellwangen (Jagst)-West","","ok"],"7027":["Ellwangen (Jagst)-Ost","","ok"],"7028":["Unterschneidheim","","ok"],"7029":["Oettingen i.Bay.","","ok"],"7030":["Wolferstadt","","ok"],"7031":["Treuchtlingen","","ok"],"7032":["Bieswang","","ok"],"7033":["Titting","","ok"],"7034":["Kipfenberg","","ok"],"7035":["Schamhaupten","","ok"],"7036":["Riedenburg","","ok"],"7037":["Kelheim","","ok"],"7038":["Bad Abbach","","ok"],"7039":["Mintraching","","ok"],"7040":["Pfatter","","ok"],"7041":["Münster","","ok"],"7042":["Bogen","","ok"],"7043":["Ruhmannsfelden","","ok"],"7044":["Regen","","ok"],"7045":["Frauenau","","ok"],"7046":["Spiegelau","","ok"],"7047":["Finsterau","","ok"],"7114":["Iffezheim","","ok"],"7115":["Rastatt","","ok"],"7116":["Malsch","","ok"],"7117":["Birkenfeld","","ok"],"7118":["Pforzheim-Süd","","ok"],"7119":["Rutesheim","","ok"],"7120":["Stuttgart-Nordwest","","ok"],"7121":["Stuttgart-Nordost","","ok"],"7122":["Winnenden","","ok"],"7123":["Schorndorf","","ok"],"7124":["Schwäbisch Gmünd-Nord","","ok"],"7125":["Mögglingen","","ok"],"7126":["Aalen","","ok"],"7127":["Westhausen","","ok"],"7128":["Nördlingen","","ok"],"7129":["Deiningen","","ok"],"7130":["Wemding","","ok"],"7131":["Monheim","","ok"],"7132":["Dollnstein","","ok"],"7133":["Eichstätt","","ok"],"7134":["Gaimersheim","","ok"],"7135":["Kösching","","ok"],"7136":["Neustadt a.d.Donau","","ok"],"7137":["Abensberg","","ok"],"7138":["Langquaid","","ok"],"7139":["Aufhausen","","ok"],"7140":["Geiselhöring","","ok"],"7141":["Straubing","","ok"],"7142":["Straßkirchen","","ok"],"7143":["Deggendorf","","ok"],"7144":["Lalling","","ok"],"7145":["Schöfweg","","ok"],"7146":["Grafenau","","ok"],"7147":["Freyung","","ok"],"7148":["Bischofsreut","","ok"],"7213":["Lichtenau-Scherzheim","","ok"],"7214":["Sinzheim","","ok"],"7215":["Baden-Baden","","ok"],"7216":["Gernsbach","","ok"],"7217":["Bad Wildbad","","ok"],"7218":["Calw","","ok"],"7219":["Weil der Stadt","","ok"],"7220":["Stuttgart-Südwest","","ok"],"7221":["Stuttgart-Südost","","ok"],"7222":["Plochingen","","ok"],"7223":["Göppingen","","ok"],"7224":["Schwäbisch Gmünd-Süd","","ok"],"7225":["Heubach","","ok"],"7226":["Oberkochen","","ok"],"7227":["Neresheim-West","","ok"],"7228":["Neresheim-Ost","","ok"],"7229":["Bissingen","","ok"],"7230":["Donauwörth","","ok"],"7231":["Genderkingen","","ok"],"7232":["Burgheim Nord","","ok"],"7233":["Neuburg a.d.Donau","","ok"],"7234":["Ingolstadt","","ok"],"7235":["Vohburg a.d.Donau","","ok"],"7236":["Münchsmünster","","ok"],"7237":["Siegenburg","","ok"],"7238":["Rottenburg a.d.Laaber","","ok"],"7239":["Mallersdorf","","ok"],"7240":["Mengkofen","","ok"],"7241":["Pilsting","","ok"],"7242":["Wallersdorf","","ok"],"7243":["Plattling","","ok"],"7244":["Osterhofen","","ok"],"7245":["Schöllnach","","ok"],"7246":["Tittling","","ok"],"7247":["Waldkirchen","","ok"],"7248":["Jandelsbrunn","","ok"],"7312":["Rheinau","","ok"],"7313":["Rheinau","","ok"],"7314":["Bühl","","ok"],"7315":["Bühlertal","","ok"],"7316":["Forbach","","ok"],"7317":["Neuweiler","","ok"],"7318":["Wildberg","","ok"],"7319":["Gärtringen","","ok"],"7320":["Böblingen","","ok"],"7321":["Filderstadt","","ok"],"7322":["Kirchheim u. Teck","","ok"],"7323":["Weilheim a.d. Teck","","ok"],"7324":["Geislingen an der Steige-West","","ok"],"7325":["Geislingen an der Steige-Ost","","ok"],"7326":["Heidenheim a.d.Brenz","","ok"],"7327":["Giengen a.d.Brenz","Giengen an der Brenz (BY)","ok (Namensvarianten)"],"7328":["Wittislingen","","ok"],"7329":["Höchstädt a.d.Donau","","ok"],"7330":["Mertingen","","ok"],"7331":["Rain","","ok"],"7332":["Burgheim Süd","","ok"],"7333":["Karlshuld","","ok"],"7334":["Reichertshofen","","ok"],"7335":["Geisenfeld","","ok"],"7336":["Mainburg","","ok"],"7337":["Pfeffenhausen","","ok"],"7338":["Hohenthann","","ok"],"7339":["Ergoldsbach","","ok"],"7340":["Dingolfing West","","ok"],"7341":["Dingolfing Ost","","ok"],"7342":["Landau a.d.Isar","","ok"],"7343":["Eichendorf","","ok"],"7344":["Pleinting","","ok"],"7345":["Vilshofen a.d.Donau","","ok"],"7346":["Hutthurm","","ok"],"7347":["Hauzenberg","","ok"],"7348":["Wegscheid","","ok"],"7412":["Kehl","","ok"],"7413":["Kehl","","ok"],"7414":["Oberkirch","","ok"],"7415":["Seebach","","ok"],"7416":["Baiersbronn","","ok"],"7417":["Altensteig","","ok"],"7418":["Nagold","","ok"],"7419":["Herrenberg","","ok"],"7420":["Tübingen","","ok"],"7421":["Metzingen","","ok"],"7422":["Lenningen","","ok"],"7423":["Wiesensteig","","ok"],"7424":["Deggingen","","ok"],"7425":["Lonsee","","ok"],"7426":["Langenau","","ok"],"7427":["Sontheim a.d.Brenz","Sontheim an der Brenz (BY)","ok (Namensvarianten)"],"7428":["Dillingen a.d.Donau West","","ok"],"7429":["Dillingen a.d.Donau Ost","","ok"],"7430":["Wertingen","","ok"],"7431":["Thierhaupten","","ok"],"7432":["Pöttmes","","ok"],"7433":["Schrobenhausen","","ok"],"7434":["Hohenwart","","ok"],"7435":["Pfaffenhofen a.d.Ilm","","ok"],"7436":["Au i.d. Hallertau","","ok"],"7437":["Bruckberg","","ok"],"7438":["Landshut West","","ok"],"7439":["Landshut Ost","","ok"],"7440":["Aham","","ok"],"7441":["Frontenhausen","","ok"],"7442":["Arnstorf","","ok"],"7443":["Roßbach","","ok"],"7444":["Aidenbach","","ok"],"7445":["Ortenburg","","ok"],"7446":["Passau","","ok"],"7447":["Obernzell","","ok"],"7448":["Untergriesbach","","ok"],"7512":["Neuried","","ok"],"7513":["Offenburg","","ok"],"7514":["Gengenbach","","ok"],"7515":["Oppenau","","ok"],"7516":["Freudenstadt","","ok"],"7517":["Dornstetten","","ok"],"7518":["Horb am Neckar","","ok"],"7519":["Rottenburg am Neckar","","ok"],"7520":["Mössingen","","ok"],"7521":["Reutlingen","","ok"],"7522":["Bad Urach","","ok"],"7523":["Münsingen","","ok"],"7524":["Blaubeuren","","ok"],"7525":["Ulm-Nordwest","","ok"],"7526":["Ulm-Nordost","","ok"],"7527":["Günzburg","","ok"],"7528":["Burgau","","ok"],"7529":["Zusmarshausen","","ok"],"7530":["Gablingen","","ok"],"7531":["Gersthofen","","ok"],"7532":["Aichach","","ok"],"7533":["Kühbach","","ok"],"7534":["Petershausen","","ok"],"7535":["Allershausen","","ok"],"7536":["Freising Nord","","ok"],"7537":["Moosburg a.d.Isar","","ok"],"7538":["Buch a.Erlbach","","ok"],"7539":["Geisenhausen","","ok"],"7540":["Vilsbiburg","","ok"],"7541":["Gangkofen","","ok"],"7542":["Eggenfelden","","ok"],"7543":["Pfarrkirchen","","ok"],"7544":["Bad Birnbach","","ok"],"7545":["Bad Griesbach i.Rottal","","ok"],"7546":["Neuhaus a.Inn","","ok"],"7612":["Lahr/Schwarzwald-West","","ok"],"7613":["Lahr/Schwarzwald-Ost","","ok"],"7614":["Zell am Harmersbach","","ok"],"7615":["Wolfach","","ok"],"7616":["Alpirsbach","","ok"],"7617":["Sulz am Neckar","","ok"],"7618":["Haigerloch","","ok"],"7619":["Hechingen","","ok"],"7620":["Jungingen","","ok"],"7621":["Trochtelfingen","","ok"],"7622":["Hohenstein","","ok"],"7623":["Mehrstetten","","ok"],"7624":["Schelklingen","","ok"],"7625":["Ulm-Südwest","","ok"],"7626":["Ulm-Südost (Neu-Ulm)","","ok"],"7627":["Ichenhausen","","ok"],"7628":["Jettingen","","ok"],"7629":["Dinkelscherben","","ok"],"7630":["Westheim b.Augsburg","","ok"],"7631":["Augsburg","","ok"],"7632":["Dasing","","ok"],"7633":["Altomünster","","ok"],"7634":["Markt Indersdorf","","ok"],"7635":["Haimhausen","","ok"],"7636":["Freising Süd","","ok"],"7637":["Erding","","ok"],"7638":["Taufkirchen (Vils)","","ok"],"7639":["Velden","","ok"],"7640":["Egglkofen","","ok"],"7641":["Neumarkt-Sankt Veit","","ok"],"7642":["Wurmannsquick","","ok"],"7643":["Tann","","ok"],"7644":["Triftern","","ok"],"7645":["Rotthalmünster","","ok"],"7646":["Würding","","ok"],"7711":["Ettenheim","","ok"],"7712":["Ettenheim","","ok"],"7713":["Schuttertal","","ok"],"7714":["Haslach im Kinzigtal","","ok"],"7715":["Hornberg","","ok"],"7716":["Schramberg","","ok"],"7717":["Oberndorf am Neckar","","ok"],"7718":["Geislingen","","ok"],"7719":["Balingen","","ok"],"7720":["Albstadt","","ok"],"7721":["Gammertingen","","ok"],"7722":["Zwiefalten","","ok"],"7723":["Munderkingen","","ok"],"7724":["Ehingen (Donau)","","ok"],"7725":["Laupheim","","ok"],"7726":["Illertissen","","ok"],"7727":["Buch","","ok"],"7728":["Krumbach (Schwaben)","","ok"],"7729":["Ziemetshausen","","ok"],"7730":["Großaitingen","","ok"],"7731":["Mering","","ok"],"7732":["Mammendorf","","ok"],"7733":["Maisach","","ok"],"7734":["Dachau","","ok"],"7735":["Oberschleißheim","","ok"],"7736":["Ismaning","","ok"],"7737":["Altenerding","","ok"],"7738":["Dorfen","","ok"],"7739":["Schwindegg","","ok"],"7740":["Ampfing","","ok"],"7741":["Mühldorf a.Inn","","ok"],"7742":["Altötting","","ok"],"7743":["Marktl","","ok"],"7744":["Simbach a.Inn","","ok"],"7811":["Wyhl am Kaiserstuhl","","ok"],"7812":["Kenzingen","","ok"],"7813":["Emmendingen","","ok"],"7814":["Elzach","","ok"],"7815":["Triberg im Schwarzwald","","ok"],"7816":["St.Georgen im Schwarzwald","","ok"],"7817":["Rottweil","","ok"],"7818":["Wehingen","","ok"],"7819":["Meßstetten","","ok"],"7820":["Winterlingen","","ok"],"7821":["Veringenstadt","","ok"],"7822":["Riedlingen","","ok"],"7823":["Uttenweiler","","ok"],"7824":["Biberach a.d.R.-Nord","","ok"],"7825":["Schwendi","","ok"],"7826":["Kirchberg an der Iller","Kirchberg a.d. Iller (BW)","ok (Namensvarianten)"],"7827":["Babenhausen","","ok"],"7828":["Kirchheim i. Schw.","","ok"],"7829":["Ettringen","","ok"],"7830":["Schwabmünchen","","ok"],"7831":["Egling a.d.Paar","","ok"],"7832":["Türkenfeld","","ok"],"7833":["Fürstenfeldbruck","","ok"],"7834":["München-Pasing","","ok"],"7835":["München","","ok"],"7836":["München-Trudering","","ok"],"7837":["Markt Schwaben","","ok"],"7838":["Albaching","","ok"],"7839":["Haag i.OB","","ok"],"7840":["Kraiburg a.Inn","","ok"],"7841":["Garching a.d.Alz","","ok"],"7842":["Burghausen","","ok"],"7911":["Breisach am Rhein","","ok"],"7912":["Freiburg im Breisgau-Nordwest","","ok"],"7913":["Freiburg im Breisgau-Nordost","","ok"],"7914":["St. Peter","","ok"],"7915":["Furtwangen im Schwarzw.","","ok"],"7916":["Villingen-Schwenningen-West","","ok"],"7917":["Villingen-Schwenningen-Ost","","ok"],"7918":["Spaichingen","","ok"],"7919":["Mühlheim a. d. Donau","","ok"],"7920":["Leibertingen","","ok"],"7921":["Sigmaringen","","ok"],"7922":["Bad Saulgau-West","","ok"],"7923":["Bad Saulgau-Ost","","ok"],"7924":["Biberach a.d.R.-Süd","","ok"],"7925":["Ochsenhausen","","ok"],"7926":["Rot an der Rot","","ok"],"7927":["Amendingen","","ok"],"7928":["Mindelheim","","ok"],"7929":["Bad Wörishofen","","ok"],"7930":["Buchloe","","ok"],"7931":["Landsberg am Lech","","ok"],"7932":["Utting a.Ammersee","","ok"],"7933":["Weßling","","ok"],"7934":["Starnberg Nord","","ok"],"7935":["München-Solln","","ok"],"7936":["Zorneding","","ok"],"7937":["Grafing b.München","","ok"],"7938":["Steinhöring","","ok"],"7939":["Wasserburg a.Inn","","ok"],"7940":["Obing","","ok"],"7941":["Trostberg","","ok"],"7942":["Tittmoning","","ok"],"8011":["Hartheim","","ok"],"8012":["Freiburg im Breisgau-Südwest","","ok"],"8013":["Freiburg im Breisgau-Südost","","ok"],"8014":["Hinterzarten","","ok"],"8015":["Titisee-Neustadt","","ok"],"8016":["Donaueschingen","","ok"],"8017":["Geisingen","","ok"],"8018":["Tuttlingen","","ok"],"8019":["Neuhausen ob Eck","","ok"],"8020":["Meßkirch","","ok"],"8021":["Pfullendorf","","ok"],"8022":["Ostrach","","ok"],"8023":["Aulendorf","","ok"],"8024":["Bad Waldsee","","ok"],"8025":["Bad Wurzach","","ok"],"8026":["Aitrach","","ok"],"8027":["Memmingen","","ok"],"8028":["Markt Rettenbach","","ok"],"8029":["Kaufbeuren-Neugablonz","","ok"],"8030":["Waal","","ok"],"8031":["Denklingen","","ok"],"8032":["Dießen a.Ammersee","","ok"],"8033":["Tutzing","","ok"],"8034":["Starnberg Süd","","ok"],"8035":["Sauerlach","","ok"],"8036":["Otterfing","","ok"],"8037":["Glonn","","ok"],"8038":["Rott a.Inn","","ok"],"8039":["Bad Endorf","","ok"],"8040":["Eggstätt","","ok"],"8041":["Traunreut","","ok"],"8042":["Waging a.See","","ok"],"8043":["Laufen","","ok"],"8111":["Müllheim","","ok"],"8112":["Staufen im Breisgau","","ok"],"8113":["Todtnau","","ok"],"8114":["Feldberg (Schwarzwald)","","ok"],"8115":["Lenzkirch","","ok"],"8116":["Löffingen","","ok"],"8117":["Blumberg","","ok"],"8118":["Engen","","ok"],"8119":["Eigeltingen","","ok"],"8120":["Stockach","","ok"],"8121":["Heiligenberg","","ok"],"8122":["Wilhelmsdorf","","ok"],"8123":["Weingarten","","ok"],"8124":["Wolfegg","","ok"],"8125":["Leutkirch im Allgäu-West","","ok"],"8126":["Leutkirch im Allgäu-Ost","","ok"],"8127":["Bad Grönenbach","","ok"],"8128":["Obergünzburg","","ok"],"8129":["Kaufbeuren","","ok"],"8130":["Bidingen","","ok"],"8131":["Schongau","","ok"],"8132":["Weilheim i.OB","","ok"],"8133":["Seeshaupt","","ok"],"8134":["Königsdorf","","ok"],"8135":["Sachsenkam","","ok"],"8136":["Holzkirchen","","ok"],"8137":["Bruckmühl","","ok"],"8138":["Rosenheim","","ok"],"8139":["Stephanskirchen","","ok"],"8140":["Prien a.Chiemsee","","ok"],"8141":["Traunstein","","ok"],"8142":["Teisendorf","","ok"],"8143":["Freilassing","","ok"],"8211":["Kandern","","ok"],"8212":["Malsburg-Marzell","","ok"],"8213":["Zell im Wiesental","","ok"],"8214":["St.Blasien","","ok"],"8215":["Ühlingen-Birkendorf","","ok"],"8216":["Stühlingen","","ok"],"8217":["Tengen-Wiechs a. R.","","ok"],"8218":["Gottmadingen","","ok"],"8219":["Singen (Hohentwiel)","","prüfen"],"8220":["Überlingen-West","","ok"],"8221":["Überlingen-Ost","","ok"],"8222":["Markdorf","","ok"],"8223":["Ravensburg","","ok"],"8224":["Vogt","","ok"],"8225":["Kißlegg","","ok"],"8226":["Isny im Allgäu-Nord","Isny i. A.-Nord (BW)","ok (Namensvarianten)"],"8227":["Kempten (Allgäu)","","ok"],"8228":["Wildpoldsried","","ok"],"8229":["Marktoberdorf","","ok"],"8230":["Lechbruck","","ok"],"8231":["Peiting","","ok"],"8232":["Uffing a.Staffelsee","","ok"],"8233":["Iffeldorf","","ok"],"8234":["Penzberg","","ok"],"8235":["Bad Tölz","","ok"],"8236":["Tegernsee","","ok"],"8237":["Miesbach","","ok"],"8238":["Neubeuern","","ok"],"8239":["Aschau i.Chiemgau","","ok"],"8240":["Marquartstein","","ok"],"8241":["Ruhpolding","","ok"],"8242":["Inzell","","ok"],"8243":["Bad Reichenhall","","ok"],"8311":["Lörrach","","ok"],"8312":["Schopfheim","","ok"],"8313":["Wehr","","ok"],"8314":["Görwihl","","ok"],"8315":["Waldshut-Tiengen","","ok"],"8316":["Klettgau","","ok"],"8317":["Jestetten","","ok"],"8318":["Gailingen a. Hochrhein","","prüfen"],"8319":["Öhningen","","ok"],"8320":["Konstanz-West","","ok"],"8321":["Konstanz-Ost","","ok"],"8322":["Friedrichshafen","","ok"],"8323":["Tettnang","","ok"],"8324":["Wangen i.A.-West","Wangen im Allgäu-West (BY)","ok (Namensvarianten)"],"8325":["Wangen im Allgäu Ost","Wangen i.A.-Ost (BW)","ok (Namensvarianten)"],"8326":["Isny im Allgäu Süd","Isny i.A.-Süd (BW)","ok (Namensvarianten)"],"8327":["Buchenberg","","ok"],"8328":["Nesselwang West","","ok"],"8329":["Nesselwang Ost","","ok"],"8330":["Roßhaupten","","ok"],"8331":["Bad Bayersoien","","ok"],"8332":["Unterammergau","","ok"],"8333":["Murnau a.Staffelsee","","ok"],"8334":["Kochel a.See","","ok"],"8335":["Lenggries","","ok"],"8336":["Rottach-Egern","","ok"],"8337":["Josefsthal","","ok"],"8338":["Bayrischzell","","ok"],"8339":["Oberaudorf","","ok"],"8340":["Reit im Winkl","","ok"],"8341":["Seegatterl","","ok"],"8342":["Schneizlreuth","","ok"],"8343":["Berchtesgaden West","","ok"],"8344":["Berchtesgaden Ost","","ok"],"8411":["Weil am Rhein","","ok"],"8412":["Rheinfelden (Baden)","","ok"],"8413":["Bad Säckingen","","ok"],"8414":["Laufenburg (Baden)","","ok"],"8415":["Küssaberg-Dangstetten","","ok"],"8416":["Hohentengen a. Hochrhein","","prüfen"],"8423":["Kressbronn am Bodensee","","ok"],"8424":["Lindau (Bodensee)","","ok"],"8425":["Weiler-Simmerberg","","ok"],"8426":["Oberstaufen","","ok"],"8427":["Immenstadt i.Allgäu","","ok"],"8428":["Bad Hindelang","","ok"],"8429":["Pfronten","","ok"],"8430":["Füssen","","ok"],"8431":["Linderhof","","ok"],"8432":["Oberammergau","","ok"],"8433":["Eschenlohe","","ok"],"8434":["Vorderriß","","ok"],"8435":["Fall","","ok"],"8442":["Hirschbichl","","ok"],"8443":["Königssee","","ok"],"8444":["Hoher Göll","","ok"],"8526":["Balderschwang","","ok"],"8527":["Oberstdorf","","ok"],"8528":["Hinterstein","","ok"],"8531":["Zugspitze","","ok"],"8532":["Garmisch-Partenkirchen","","ok"],"8533":["Mittenwald","","ok"],"8534":["Östl.Karwendelspitze","","ok"],"8543":["Funtensee","","ok"],"8626":["Hoher Ifen","","ok"],"8627":["Einödsbach","","ok"],"8628":["Hochvogel","","ok"],"8727":["Biberkopf","","ok"]};
+const STANDALONE = true;
+const nm = id => (DB[id] || [""])[0];
+
+const NORD = 55 + 54 / 60, WEST = 5 + 50 / 60, DH = 10 / 60, DB_H = 6 / 60;
+const A = 6378137.0, E2 = 0.00669438002290;
+let puffer = 100;
+try { const s = localStorage.getItem("tk25-puffer"); if (["100","200","500"].includes(s)) puffer = +s; } catch (e) {}
+
+const pad = (n, l = 2) => String(n).padStart(l, "0");
+function dms(x) {
+  const t = Math.round(x * 36000);
+  const d = Math.floor(t / 36000), r = t - d * 36000;
+  const m = Math.floor(r / 600), s = (r - m * 600) / 10;
+  return `${d}° ${pad(m)}′ ${s.toFixed(1).padStart(4, "0")}″`;
+}
+function mPerDeg(lat) {
+  const p = lat * Math.PI / 180, w = Math.sqrt(1 - E2 * Math.sin(p) ** 2);
+  const M = A * (1 - E2) / w ** 3, N = A / w;
+  return [M * Math.PI / 180, N * Math.cos(p) * Math.PI / 180];
+}
+const sheetId = (z, s) => pad(z) + pad(s);
+
+function tk25(lat, lon, buf) {
+  const zeile = Math.floor((NORD - lat) / DB_H) + 1;
+  const spalte = Math.floor((lon - WEST) / DH) + 1;
+  const nord = NORD - (zeile - 1) * DB_H, sued = nord - DB_H;
+  const west = WEST + (spalte - 1) * DH, ost = west + DH;
+  const [mns, mow] = mPerDeg(lat);
+  const ab = { N: (nord - lat) * mns, S: (lat - sued) * mns, W: (lon - west) * mow, O: (ost - lon) * mow };
+  const dz = { N: -1, S: 1 }, ds = { W: -1, O: 1 };
+  const nNS = ["N", "S"].filter(k => ab[k] < buf), nWO = ["W", "O"].filter(k => ab[k] < buf);
+  const nach = [];
+  nNS.forEach(k => nach.push([k, zeile + dz[k], spalte]));
+  nWO.forEach(k => nach.push([k, zeile, spalte + ds[k]]));
+  nNS.forEach(a => nWO.forEach(b => nach.push([a + b, zeile + dz[a], spalte + ds[b]])));
+  return {
+    zeile, spalte, blatt: sheetId(zeile, spalte), nord, sued, west, ost, ab,
+    fx: (lon - west) / DH, fy: (nord - lat) / DB_H,
+    nachbarn: nach.map(([r, z, s]) => ({ richtung: r, blatt: sheetId(z, s), z, s })),
+  };
+}
+
+// --- Eingabe lesen ---
+function parseDMSPart(m) {
+  const d = +m[1], mi = m[2] ? +m[2].replace(",", ".") : 0, s = m[3] ? +m[3].replace(",", ".") : 0;
+  let v = d + mi / 60 + s / 3600;
+  const h = (m[4] || "").toUpperCase();
+  if (h === "S" || h === "W") v = -v;
+  return { v, h };
+}
+// Links aus Google Maps / Apple Karten: Koordinaten herauslösen, wenn sie im Link stehen
+const SHORTLINK = "Das ist ein Kurzlink. Er enthält keine Koordinaten und kann ohne Internetabfrage nicht aufgelöst werden. " +
+  "Bitte statt „Teilen“ die Koordinaten selbst kopieren (Anleitung direkt hierunter).";
+function fromLink(t) {
+  if (!/^(https?:\/\/|maps\.|www\.)/i.test(t)) return null;
+  if (/(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.apple\/p\/|g\.co\/kgs)/i.test(t)) return { error: SHORTLINK };
+  let u = t; try { u = decodeURIComponent(t); } catch (e) {}
+  const num = "(-?\\d{1,3}\\.\\d+)";
+  const pats = [
+    new RegExp("!3d" + num + "!4d" + num),                                   // Google: genauer Ort
+    new RegExp("[?&](?:q|query|ll|sll|daddr|destination|coordinate|center)=" + num + "\\s*,\\s*" + num),
+    new RegExp("/search/" + num + ",\\+?" + num),
+    new RegExp("@" + num + "," + num),                                      // Google: Kartenmitte
+  ];
+  for (const re of pats) {
+    const m = u.match(re);
+    if (m) return { lat: +m[1], lon: +m[2], link: true };
+  }
+  return { error: "In diesem Link stehen keine Koordinaten. Bitte die Koordinaten selbst kopieren (Anleitung direkt hierunter)." };
+}
+function parseCoord(txt) {
+  const t = txt.trim();
+  if (!t) return { error: "Bitte Koordinaten eingeben." };
+  const lk = fromLink(t);
+  if (lk) return lk.error ? lk : check(lk.lat, lk.lon);
+  if (/[°′'"″]/.test(t)) {
+    const re = /(\d{1,3})\s*°\s*(?:(\d{1,2}(?:[.,]\d+)?)\s*['′’]\s*)?(?:(\d{1,2}(?:[.,]\d+)?)\s*(?:["″”]|'')\s*)?([NSEOW])?/gi;
+    const parts = [...t.matchAll(re)].map(parseDMSPart);
+    if (parts.length < 2) return { error: "Grad-Minuten-Sekunden-Angabe nicht vollständig. Beispiel: 54°57′24.1″N 8°20′31.7″E" };
+    let lat = parts[0].v, lon = parts[1].v;
+    if (/[EOW]/i.test(parts[0].h) || /[NS]/i.test(parts[1].h)) { [lat, lon] = [lon, lat]; }
+    return check(lat, lon);
+  }
+  const nums = t.match(/-?\d+(?:[.,]\d+)?/g);
+  if (!nums || nums.length < 2) return { error: "Zwei Zahlen erwartet: Breite und Länge, z. B. 54.9567, 8.3421" };
+  return check(+nums[0].replace(",", "."), +nums[1].replace(",", "."));
+}
+function check(lat, lon) {
+  if (!isFinite(lat) || !isFinite(lon)) return { error: "Koordinaten nicht lesbar." };
+  if (lat < 47 || lat > 55.9 || lon < 5.83 || lon > 15.5) {
+    if (lon >= 47 && lon <= 55.9 && lat >= 5.83 && lat <= 15.5)
+      return { error: "Breite und Länge scheinen vertauscht. Google Maps liefert zuerst die Breite (ca. 47–55), dann die Länge (ca. 6–15)." };
+    return { error: "Punkt liegt außerhalb des deutschen TK25-Blattschnitts (Breite 47°–55°54′, Länge ab 5°50′)." };
+  }
+  return { lat, lon };
+}
+
+// --- Ausgabe ---
+const $ = id => document.getElementById(id);
+const fmtM = v => v >= 10000 ? (v / 1000).toFixed(1).replace(".", ",") + " km" : Math.round(v).toLocaleString("de-DE") + " m";
+const RICHT = { N: "Nord", S: "Süd", W: "West", O: "Ost", NW: "Nordwest", NO: "Nordost", SW: "Südwest", SO: "Südost" };
+let last = null;
+
+function render() {
+  const p = parseCoord($("coord").value);
+  if (p.error) { $("err").textContent = p.error; $("err").hidden = false; if (/link/i.test(p.error)) $("gpshelp").hidden = false; $("result").hidden = true; return; }
+  $("err").hidden = true; $("result").hidden = false;
+  const r = tk25(p.lat, p.lon, puffer);
+  last = { ...r, lat: p.lat, lon: p.lon };
+  $("no").textContent = r.blatt;
+  const rec = DB[r.blatt];
+  $("name").textContent = rec ? rec[0] : "Kein Blatt im deutschen Blattschnitt";
+  $("name").className = "name" + (rec ? "" : " unknown");
+  $("alt").textContent = rec && rec[1] ? "Auch: " + rec[1] : "";
+  $("alt").hidden = !(rec && rec[1]);
+  const bad = rec && (rec[2] === "prüfen" || rec[2] === "nicht in BKG-Übersicht");
+  $("chk").hidden = !bad;
+  $("chk").textContent = !bad ? "" : rec[2] === "prüfen" ? "Name in der Vorlage schwer lesbar" : "Blatt fehlt in der BKG-Übersicht";
+  $("lat").textContent = dms(p.lat) + " N";
+  $("lon").textContent = dms(p.lon) + " E";
+  $("fns").textContent = dms(r.sued) + " – " + dms(r.nord);
+  $("fwo").textContent = dms(r.west) + " – " + dms(r.ost);
+  for (const k of ["N", "S", "W", "O"]) {
+    const el = $("d" + k);
+    el.querySelector("b").textContent = fmtM(r.ab[k]);
+    el.classList.toggle("near", r.ab[k] < puffer);
+  }
+  const st = $("status");
+  st.replaceChildren();
+  if (r.nachbarn.length) {
+    st.className = "status warn";
+    const s = document.createElement("strong");
+    s.textContent = `Randwarnung: Blattrand näher als ${puffer} m. Zusätzlich prüfen:`;
+    const ul = document.createElement("ul");
+    r.nachbarn.forEach(n => {
+      const li = document.createElement("li");
+      li.textContent = `${RICHT[n.richtung]}: Blatt ${n.blatt}${nm(n.blatt) ? " " + nm(n.blatt) : ""}`;
+      ul.append(li);
+    });
+    st.append(s, ul);
+  } else {
+    st.className = "status";
+    const s = document.createElement("strong");
+    s.textContent = `Eindeutig: kein Blattrand innerhalb ${puffer} m.`;
+    st.append(s);
+  }
+  // 3x3
+  const [mns, mow] = mPerDeg(p.lat);
+  const ratio = (DH * mow) / (DB_H * mns);
+  const g = $("grid9"); g.replaceChildren();
+  const flagged = new Set(r.nachbarn.map(n => n.blatt));
+  for (let dz = -1; dz <= 1; dz++) for (let ds = -1; ds <= 1; ds++) {
+    const id = sheetId(r.zeile + dz, r.spalte + ds);
+    const c = document.createElement("div");
+    c.className = "cell" + (dz === 0 && ds === 0 ? " center" : "") + (flagged.has(id) ? " flag" : "") + (DB[id] ? "" : " none");
+    c.style.aspectRatio = ratio.toFixed(3);
+    const a = document.createElement("span"); a.className = "cn"; a.textContent = id;
+    const b = document.createElement("span"); b.className = "cname"; b.textContent = nm(id);
+    c.append(a, b);
+    if (dz === 0 && ds === 0) {
+      const pt = document.createElement("span"); pt.className = "pt";
+      pt.style.left = (r.fx * 100) + "%"; pt.style.top = (r.fy * 100) + "%";
+      pt.setAttribute("aria-label", "Position");
+      c.append(pt);
+    }
+    g.append(c);
+  }
+}
+
+function resultText() {
+  if (!last) return "";
+  const r = last, nmx = nm(r.blatt) ? " " + nm(r.blatt) : "";
+  let t = `TK25 Blatt ${r.blatt}${nmx}\nPosition: ${dms(r.lat)} N, ${dms(r.lon)} E (${r.lat.toFixed(6)}, ${r.lon.toFixed(6)})\n` +
+    `Randabstand: N ${fmtM(r.ab.N)}, S ${fmtM(r.ab.S)}, W ${fmtM(r.ab.W)}, O ${fmtM(r.ab.O)}`;
+  if (r.nachbarn.length) t += `\nRandwarnung (${puffer} m): ` + r.nachbarn.map(n => `${n.blatt}${nm(n.blatt) ? " " + nm(n.blatt) : ""}`).join(", ");
+  return t;
+}
+
+// --- Stapel ---
+let csv = "";
+function renderBatch() {
+  const tb = $("tbody"); tb.replaceChildren();
+  const rows = [["Bezeichnung", "Blatt", "Name", "Breite", "Laenge", "Breite_dez", "Laenge_dez", "Randwarnung"]];
+  $("list").value.split(/\r?\n/).forEach(line => {
+    if (!line.trim()) return;
+    let label = "", coord = line;
+    const i = line.indexOf(";");
+    if (i >= 0) { label = line.slice(0, i).trim(); coord = line.slice(i + 1); }
+    const tr = document.createElement("tr");
+    const td = (txt, cls) => { const e = document.createElement("td"); e.textContent = txt; if (cls) e.className = cls; tr.append(e); return e; };
+    const p = parseCoord(coord);
+    td(label || "–");
+    if (p.error) {
+      td("–"); td("–"); td("–"); td("–");
+      const e = td(""); const s = document.createElement("span"); s.className = "pill err"; s.textContent = "nicht lesbar"; e.append(s);
+      tb.append(tr); return;
+    }
+    const r = tk25(p.lat, p.lon, puffer);
+    td(r.blatt, "num"); td((nm(r.blatt) || "–")); td(dms(p.lat), "num"); td(dms(p.lon), "num");
+    const e = td(""); const s = document.createElement("span");
+    const warn = r.nachbarn.map(n => n.blatt).join(", ");
+    s.className = "pill " + (warn ? "warn" : "ok"); s.textContent = warn ? "auch " + warn : "eindeutig";
+    e.append(s); tb.append(tr);
+    rows.push([label, r.blatt, nm(r.blatt), dms(p.lat), dms(p.lon), p.lat.toFixed(6), p.lon.toFixed(6), warn]);
+  });
+  csv = rows.map(r => r.map(v => /[;"\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v).join(";")).join("\n");
+}
+
+async function copy(text, toastId, srcEl) {
+  const t = $(toastId);
+  try { await navigator.clipboard.writeText(text); t.textContent = "Kopiert"; }
+  catch (e) {
+    if (srcEl) { srcEl.focus(); srcEl.select(); }
+    t.textContent = "Kopieren nicht erlaubt – bitte manuell kopieren";
+  }
+  setTimeout(() => { t.textContent = ""; }, 2500);
+}
+
+function setPuffer(v) {
+  puffer = v;
+  try { localStorage.setItem("tk25-puffer", String(v)); } catch (e) {}
+  document.querySelectorAll("[data-p]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.p === v)));
+  render(); renderBatch();
+}
+
+document.querySelectorAll("[data-p]").forEach(b => b.addEventListener("click", () => setPuffer(+b.dataset.p)));
+$("coord").addEventListener("input", render);
+$("list").addEventListener("input", renderBatch);
+$("copy").addEventListener("click", () => copy(resultText(), "toast", $("coord")));
+$("copycsv").addEventListener("click", () => copy(csv, "toast2", $("list")));
+// --- Suche ---
+function frame(id) {
+  const z = +id.slice(0, 2), s = +id.slice(2);
+  const nord = NORD - (z - 1) * DB_H, west = WEST + (s - 1) * DH;
+  return { nord, sued: nord - DB_H, west, ost: west + DH };
+}
+const fold = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ß/g, "ss");
+function renderSearch() {
+  const q = $("q").value.trim(), tb = $("qbody"); tb.replaceChildren();
+  if (!q) return;
+  const fq = fold(q), hits = [];
+  for (const [id, rec] of Object.entries(DB)) {
+    const hay = fold(id + " " + rec[0] + " " + rec[1]);
+    if (id.startsWith(q) || hay.includes(fq))
+      hits.push([id, rec, id === q || fold(rec[0]) === fq ? 0 : fold(rec[0]).startsWith(fq) ? 1 : 2]);
+  }
+  hits.sort((a, b) => a[2] - b[2] || a[0].localeCompare(b[0]));
+  if (!hits.length) {
+    const tr = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = 5; td.textContent = "Kein Blatt gefunden."; tr.append(td); tb.append(tr); return;
+  }
+  hits.slice(0, 12).forEach(([id, rec]) => {
+    const f = frame(id), tr = document.createElement("tr");
+    const add = (txt, cls) => { const e = document.createElement("td"); e.textContent = txt; if (cls) e.className = cls; tr.append(e); return e; };
+    add(id, "num"); add(rec[0] + (rec[1] ? " (auch: " + rec[1] + ")" : ""));
+    add(dms(f.sued) + " – " + dms(f.nord), "num"); add(dms(f.west) + " – " + dms(f.ost), "num");
+    const c = add(""), b = document.createElement("button");
+    b.type = "button"; b.className = "go"; b.textContent = "Anzeigen";
+    b.addEventListener("click", () => {
+      $("coord").value = ((f.nord + f.sued) / 2).toFixed(6) + ", " + ((f.west + f.ost) / 2).toFixed(6);
+      render(); window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    c.append(b); tb.append(tr);
+  });
+}
+$("q").addEventListener("input", renderSearch);
+setPuffer(puffer);
+renderSearch();
+
+// --- Prüfliste ---
+let filt = "prüfen";
+function renderFilter() {
+  document.querySelectorAll("[data-f]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.f === filt)));
+  const tb = $("fbody"); tb.replaceChildren();
+  const list = Object.entries(DB).filter(([, r]) => r[2] === filt).sort((a, b) => a[0].localeCompare(b[0]));
+  $("fcount").textContent = list.length + " Blätter";
+  list.forEach(([id, rec]) => {
+    const tr = document.createElement("tr");
+    const add = (txt, cls) => { const e = document.createElement("td"); e.textContent = txt; if (cls) e.className = cls; tr.append(e); return e; };
+    add(id, "num"); add(rec[0]);
+    add(rec[1] || (filt === "prüfen" ? "Name in der Vorlage schwer lesbar" : "nur in der Länderübersicht gedruckt"));
+    const c = add(""), b = document.createElement("button");
+    b.type = "button"; b.className = "go"; b.textContent = "Anzeigen";
+    b.addEventListener("click", () => {
+      const f = frame(id);
+      $("coord").value = ((f.nord + f.sued) / 2).toFixed(6) + ", " + ((f.west + f.ost) / 2).toFixed(6);
+      render(); window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    c.append(b); tb.append(tr);
+  });
+}
+document.querySelectorAll("[data-f]").forEach(b => b.addEventListener("click", () => { filt = b.dataset.f; renderFilter(); }));
+renderFilter();
+
+// --- Nur in der eigenständigen Datei: Standort und Speichern ---
+function save(name, text) {
+  const blob = new Blob(["﻿" + text], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function dbCsv() {
+  const q = v => /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  const out = ["Blatt;Name;Alternativnamen;Nord;Sued;West;Ost;Status"];
+  for (const [id, r] of Object.entries(DB).sort((a, b) => a[0].localeCompare(b[0]))) {
+    const f = frame(id);
+    out.push([id, r[0], r[1], f.nord.toFixed(6), f.sued.toFixed(6), f.west.toFixed(6), f.ost.toFixed(6), r[2]].map(q).join(";"));
+  }
+  return out.join("\n");
+}
+if (STANDALONE) {
+  $("dlcsv").hidden = false; $("dldb").hidden = false;
+  $("dlcsv").addEventListener("click", () => save("tk25_punkte.csv", csv));
+  $("dldb").addEventListener("click", () => save("tk25_blaetter.csv", dbCsv()));
+  // Koordinaten aus der Adresse übernehmen (…/tk25-blattfinder.html?c=54.95,8.34 oder #54.95,8.34)
+  try {
+    const u = new URLSearchParams(location.search).get("c") || decodeURIComponent(location.hash.slice(1));
+    if (u && !parseCoord(u).error) { $("coord").value = u; render(); }
+  } catch (e) {}
+  $("gps").hidden = false;
+  $("gpsclose").addEventListener("click", () => { $("gpshelp").hidden = true; });
+  const gpsHelp = () => {
+    $("gpshelp").hidden = false;
+    $("gpshelp").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+  $("gps").addEventListener("click", () => {
+    if (!("geolocation" in navigator) || !window.isSecureContext) {
+      $("toast").textContent = "";
+      gpsHelp();
+      return;
+    }
+    {
+      $("toast").textContent = "Standort wird ermittelt …";
+      navigator.geolocation.getCurrentPosition(pos => {
+        const c = pos.coords;
+        $("coord").value = c.latitude.toFixed(7) + ", " + c.longitude.toFixed(7);
+        render();
+        $("toast").textContent = "Standort übernommen (Genauigkeit ca. " + Math.round(c.accuracy) + " m)";
+        if (c.accuracy > puffer) setPuffer([100, 200, 500].find(v => v >= c.accuracy) || 500);
+      }, err => {
+        $("toast").textContent = err.code === 1
+          ? "Standortzugriff nicht erlaubt. Bitte im Browser freigeben oder Koordinaten einfügen."
+          : "Standort nicht verfügbar. Bitte Koordinaten einfügen.";
+        if (err.code === 1) gpsHelp();
+      }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    }
+  });
+}
+</script>
+
+</body>
+</html>
