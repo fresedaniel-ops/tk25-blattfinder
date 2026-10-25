@@ -301,6 +301,7 @@ footer p { margin: 0; max-width: 70ch; }
       <div class="protoopts">
         <label class="opt" for="crs">Koordinatensystem
           <select id="crs">
+            <option value="wgs">WGS84 geographisch (EPSG:4326)</option>
             <option value="utm32">ETRS89 / UTM 32N (EPSG:25832)</option>
             <option value="utm33">ETRS89 / UTM 33N (EPSG:25833)</option>
             <option value="gkauto">Gauß-Krüger, Zone nach Länge</option>
@@ -660,8 +661,8 @@ function project(lat, lon, key, zonePrefix) {
 }
 
 // --- Für das Messprotokoll ---
-const pref = { crs: "utm32", dec: "0", zpre: false, dcomma: true, wfmt: "dd" };
-try { Object.assign(pref, JSON.parse(localStorage.getItem("tk25-proto") || "{}")); } catch (e) {}
+const pref = { crs: "wgs", dec: "0", zpre: false, dcomma: true, wfmt: "dd" };
+try { Object.assign(pref, JSON.parse(localStorage.getItem("tk25-proto2") || "{}")); } catch (e) {}
 $("crs").value = pref.crs; $("dec").value = pref.dec; $("zpre").checked = pref.zpre; $("dcomma").checked = pref.dcomma; $("wfmt").value = pref.wfmt;
 function fmtNum(v, d) {
   const s = v.toFixed(d);
@@ -672,8 +673,8 @@ function coordsFor(lat, lon) {
   const r = project(lat, lon, key, $("zpre").checked);
   const c = CRS[r.key];
   if (r.key === "wgs") {
-    const d = Math.max(dec + 5, 6);
-    return { rw: fmtNum(r.rw, d), hw: fmtNum(r.hw, d), crs: c.label + " (EPSG:" + c.epsg + ")", lrw: "Länge (E)", lhw: "Breite (N)", key: r.key };
+    const w = wgsFor(lat, lon);
+    return { rw: w.lon, hw: w.lat, crs: c.label + " (EPSG:" + c.epsg + ")" + ($("wfmt").value === "dms" ? ", Grad/Min/Sek" : ", Dezimalgrad"), lrw: "Länge (E)", lhw: "Breite (N)", key: r.key };
   }
   let label = c.label + " (EPSG:" + c.epsg + ")";
   if (r.key.startsWith("utm") && $("zpre").checked) label += ", Rechtswert mit Zonenkennung";
@@ -696,13 +697,14 @@ function renderProto() {
   const w = wgsFor(last.lat, last.lon);
   $("v_lat").textContent = w.lat; $("v_lon").textContent = w.lon;
   $("zpre").disabled = !$("crs").value.startsWith("utm");
+  $("dec").disabled = $("crs").value === "wgs";
   $("crsnote").textContent = c.key.startsWith("gk")
     ? "Gauß-Krüger: Umrechnung vom GPS (WGS84/ETRS89) ins alte Lagesystem DHDN mit dem bundesweiten 7-Parameter-Satz. Abweichung zur amtlichen Transformation (BeTA2007) je nach Region etwa 1–3 m."
-    : c.key === "wgs" ? "Geographische Koordinaten in Dezimalgrad."
+    : c.key === "wgs" ? "Rechtswert = geographische Länge, Hochwert = geographische Breite (WGS84). Dezimalgrad mit 6 Nachkommastellen entsprechen etwa 0,1 m, Grad/Min/Sek mit Zehntelsekunden etwa 3 m. Format unter „WGS84-Format“ wählen."
     : "ETRS89 und WGS84 werden gleichgesetzt; der Unterschied liegt heute unter einem Meter und damit unter der Handy-GPS-Genauigkeit.";
 }
 function savePref() {
-  try { localStorage.setItem("tk25-proto", JSON.stringify({ crs: $("crs").value, dec: $("dec").value, zpre: $("zpre").checked, dcomma: $("dcomma").checked, wfmt: $("wfmt").value })); } catch (e) {}
+  try { localStorage.setItem("tk25-proto2", JSON.stringify({ crs: $("crs").value, dec: $("dec").value, zpre: $("zpre").checked, dcomma: $("dcomma").checked, wfmt: $("wfmt").value })); } catch (e) {}
   renderProto(); renderBatch();
 }
 ["crs", "dec", "zpre", "dcomma", "wfmt"].forEach(id => $(id).addEventListener("change", savePref));
