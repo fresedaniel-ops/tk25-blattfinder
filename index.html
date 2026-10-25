@@ -183,6 +183,23 @@ tr:last-child td { border-bottom: 0; }
 .addrsel { margin: 0; font-size: .88rem; color: var(--muted); }
 .addrsel b { color: var(--ink); font-weight: 600; }
 .osm { color: var(--muted); }
+.proto { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; display: grid; gap: 14px; }
+.protohead { display: grid; gap: 10px; }
+.protoopts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; }
+.opt { display: grid; gap: 4px; font-weight: 600; font-size: .82rem; color: var(--muted); }
+.opt select { font: 500 .92rem var(--font-body); color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 7px 8px; max-width: 100%; }
+.chk { display: inline-flex; gap: 6px; align-items: center; font-size: .88rem; padding-bottom: 7px; }
+.protogrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 560px) { .protogrid { grid-template-columns: 1fr; } }
+.pf { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 2px 10px; align-items: center;
+      border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; background: var(--paper); }
+.pf.wide { grid-column: 1 / -1; }
+.pl { grid-column: 1; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.pv { grid-column: 1; font-family: var(--font-data); font-size: 1.02rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; user-select: all; }
+.cp { grid-column: 2; grid-row: 1 / span 2; font: 600 .85rem var(--font-body); background: var(--surface); color: var(--water);
+      border: 1px solid var(--rule); border-radius: 4px; padding: 8px 12px; cursor: pointer; min-width: 92px; }
+.cp:hover { border-color: var(--water); }
+.cp.done { color: var(--ok); border-color: var(--ok); }
 .gpshelp { border-left: 4px solid var(--water); background: var(--paper); padding: 10px 14px; display: grid; gap: 6px; font-size: .9rem; }
 .gpshelp p, .gpshelp ol { margin: 0; }
 .gpshelp ol { padding-left: 20px; display: grid; gap: 4px; }
@@ -278,6 +295,47 @@ footer p { margin: 0; max-width: 70ch; }
     </div>
   </section>
 
+  <section class="proto" id="proto" aria-label="Für das Messprotokoll">
+    <div class="protohead">
+      <h2>Für das Messprotokoll</h2>
+      <div class="protoopts">
+        <label class="opt" for="crs">Koordinatensystem
+          <select id="crs">
+            <option value="utm32">ETRS89 / UTM 32N (EPSG:25832)</option>
+            <option value="utm33">ETRS89 / UTM 33N (EPSG:25833)</option>
+            <option value="gkauto">Gauß-Krüger, Zone nach Länge</option>
+            <option value="gk2">DHDN / Gauß-Krüger 2 (EPSG:31466)</option>
+            <option value="gk3">DHDN / Gauß-Krüger 3 (EPSG:31467)</option>
+            <option value="gk4">DHDN / Gauß-Krüger 4 (EPSG:31468)</option>
+            <option value="gk5">DHDN / Gauß-Krüger 5 (EPSG:31469)</option>
+          </select>
+        </label>
+        <label class="opt" for="dec">Nachkommastellen
+          <select id="dec"><option value="0">0 (Meter)</option><option value="1">1</option><option value="2">2 (Zentimeter)</option><option value="3">3</option></select>
+        </label>
+        <label class="opt" for="wfmt">WGS84-Format
+          <select id="wfmt"><option value="dd">Dezimalgrad</option><option value="dms">Grad Min Sek</option></select>
+        </label>
+        <label class="chk" for="zpre"><input type="checkbox" id="zpre"> UTM-Zone vor Rechtswert (32…)</label>
+        <label class="chk" for="dcomma"><input type="checkbox" id="dcomma"> Dezimalkomma</label>
+      </div>
+    </div>
+    <div class="protogrid">
+      <div class="pf"><span class="pl">TK25-Nummer</span><output id="v_nr" class="pv"></output><button type="button" class="cp" data-c="v_nr">Kopieren</button></div>
+      <div class="pf"><span class="pl">TK25-Name</span><output id="v_name" class="pv"></output><button type="button" class="cp" data-c="v_name">Kopieren</button></div>
+      <div class="pf"><span class="pl" id="l_rw">Rechtswert</span><output id="v_rw" class="pv"></output><button type="button" class="cp" data-c="v_rw">Kopieren</button></div>
+      <div class="pf"><span class="pl" id="l_hw">Hochwert</span><output id="v_hw" class="pv"></output><button type="button" class="cp" data-c="v_hw">Kopieren</button></div>
+      <div class="pf"><span class="pl">WGS84 Breite (N)</span><output id="v_lat" class="pv"></output><button type="button" class="cp" data-c="v_lat">Kopieren</button></div>
+      <div class="pf"><span class="pl">WGS84 Länge (E)</span><output id="v_lon" class="pv"></output><button type="button" class="cp" data-c="v_lon">Kopieren</button></div>
+      <div class="pf wide"><span class="pl">Koordinatensystem</span><output id="v_crs" class="pv"></output><button type="button" class="cp" data-c="v_crs">Kopieren</button></div>
+    </div>
+    <div class="row">
+      <button type="button" class="btn" id="cpall">Alle als Tabellenzeile kopieren</button>
+      <span class="toast" id="toast3" aria-live="polite"></span>
+    </div>
+    <p class="hint" id="crsnote"></p>
+  </section>
+
   <section class="batch" aria-label="Blatt suchen">
     <h2>Blatt suchen</h2>
     <div class="field">
@@ -303,7 +361,7 @@ Beispiel Lübeck; 53.8655, 10.6866</textarea>
     </div>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Bezeichnung</th><th>Blatt</th><th>Name</th><th>Breite</th><th>Länge</th><th>Rand</th></tr></thead>
+        <thead><tr><th>Bezeichnung</th><th>Blatt</th><th>Name</th><th id="bh_rw">Rechtswert</th><th id="bh_hw">Hochwert</th><th>Rand</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -449,10 +507,11 @@ let last = null;
 
 function render() {
   const p = parseCoord($("coord").value);
-  if (p.error) { $("err").textContent = p.error; $("err").hidden = false; if (/link/i.test(p.error)) $("gpshelp").hidden = false; $("result").hidden = true; return; }
+  if (p.error) { $("err").textContent = p.error; $("err").hidden = false; if (/link/i.test(p.error)) $("gpshelp").hidden = false; $("result").hidden = true; $("proto").hidden = true; return; }
   $("err").hidden = true; $("result").hidden = false;
   const r = tk25(p.lat, p.lon, puffer);
   last = { ...r, lat: p.lat, lon: p.lon };
+  $("proto").hidden = false;
   $("no").textContent = r.blatt;
   const rec = DB[r.blatt];
   $("name").textContent = rec ? rec[0] : "Kein Blatt im deutschen Blattschnitt";
@@ -462,6 +521,7 @@ function render() {
   const bad = rec && (rec[2] === "prüfen" || rec[2] === "nicht in BKG-Übersicht");
   $("chk").hidden = !bad;
   $("chk").textContent = !bad ? "" : rec[2] === "prüfen" ? "Name in der Vorlage schwer lesbar" : "Blatt fehlt in der BKG-Übersicht";
+  renderProto();
   $("lat").textContent = dms(p.lat) + " N";
   $("lon").textContent = dms(p.lon) + " E";
   $("fns").textContent = dms(r.sued) + " – " + dms(r.nord);
@@ -522,11 +582,158 @@ function resultText() {
   return t;
 }
 
+// --- Koordinatenumrechnung WGS84/ETRS89 -> UTM bzw. DHDN/Gauß-Krüger ---
+const GRS80 = { a: 6378137.0, f: 1 / 298.257222101 };
+const WGS84E = { a: 6378137.0, f: 1 / 298.257223563 };
+const BESSEL = { a: 6377397.155, f: 1 / 299.1528128 };
+
+// Transverse Mercator nach Krüger (Reihe in n, Genauigkeit < 1 mm im Zonenbereich)
+function tmForward(latDeg, lonDeg, lon0Deg, ell, k0, FE, FN) {
+  const { a, f } = ell, n = f / (2 - f), n2 = n * n, n3 = n2 * n, n4 = n3 * n;
+  const A = a / (1 + n) * (1 + n2 / 4 + n4 / 64);
+  const al = [0,
+    n / 2 - 2 / 3 * n2 + 5 / 16 * n3 + 41 / 180 * n4,
+    13 / 48 * n2 - 3 / 5 * n3 + 557 / 1440 * n4,
+    61 / 240 * n3 - 103 / 140 * n4,
+    49561 / 161280 * n4];
+  const e = Math.sqrt(f * (2 - f));
+  const phi = latDeg * Math.PI / 180, dl = (lonDeg - lon0Deg) * Math.PI / 180;
+  const t = Math.sinh(Math.atanh(Math.sin(phi)) - e * Math.atanh(e * Math.sin(phi)));
+  const xi1 = Math.atan2(t, Math.cos(dl)), eta1 = Math.atanh(Math.sin(dl) / Math.sqrt(1 + t * t));
+  let xi = xi1, eta = eta1;
+  for (let j = 1; j <= 4; j++) {
+    xi += al[j] * Math.sin(2 * j * xi1) * Math.cosh(2 * j * eta1);
+    eta += al[j] * Math.cos(2 * j * xi1) * Math.sinh(2 * j * eta1);
+  }
+  return { E: FE + k0 * A * eta, N: FN + k0 * A * xi };
+}
+
+function geo2ecef(latDeg, lonDeg, h, ell) {
+  const e2 = ell.f * (2 - ell.f), p = latDeg * Math.PI / 180, l = lonDeg * Math.PI / 180;
+  const N = ell.a / Math.sqrt(1 - e2 * Math.sin(p) ** 2);
+  return [(N + h) * Math.cos(p) * Math.cos(l), (N + h) * Math.cos(p) * Math.sin(l), (N * (1 - e2) + h) * Math.sin(p)];
+}
+function ecef2geo(X, Y, Z, ell) {
+  const e2 = ell.f * (2 - ell.f), p = Math.hypot(X, Y);
+  let lat = Math.atan2(Z, p * (1 - e2)), h = 0;
+  for (let i = 0; i < 8; i++) {
+    const N = ell.a / Math.sqrt(1 - e2 * Math.sin(lat) ** 2);
+    h = p / Math.cos(lat) - N;
+    lat = Math.atan2(Z, p * (1 - e2 * N / (N + h)));
+  }
+  return [lat * 180 / Math.PI, Math.atan2(Y, X) * 180 / Math.PI];
+}
+// WGS84 -> DHDN: Umkehr des bundesweiten 7-Parameter-Satzes DHDN->WGS84 (EPSG:1777, Position Vector)
+function wgs2dhdn(lat, lon) {
+  const as = Math.PI / 180 / 3600;
+  const tx = 598.1, ty = 73.7, tz = 418.2, rx = 0.202 * as, ry = 0.045 * as, rz = -2.455 * as, s = 6.7e-6;
+  const [X, Y, Z] = geo2ecef(lat, lon, 0, WGS84E);
+  // exakte Umkehr: X_dhdn = R^-1 (X_wgs - T) / (1+s); R klein -> R^-1 ≈ R^T
+  const x = (X - tx) / (1 + s), y = (Y - ty) / (1 + s), z = (Z - tz) / (1 + s);
+  const Xd = x + rz * y - ry * z, Yd = -rz * x + y + rx * z, Zd = ry * x - rx * y + z;
+  return ecef2geo(Xd, Yd, Zd, BESSEL);
+}
+
+const CRS = {
+  utm32: { label: "ETRS89 / UTM Zone 32N", epsg: 25832 },
+  utm33: { label: "ETRS89 / UTM Zone 33N", epsg: 25833 },
+  gk2: { label: "DHDN / Gauß-Krüger Zone 2", epsg: 31466 },
+  gk3: { label: "DHDN / Gauß-Krüger Zone 3", epsg: 31467 },
+  gk4: { label: "DHDN / Gauß-Krüger Zone 4", epsg: 31468 },
+  gk5: { label: "DHDN / Gauß-Krüger Zone 5", epsg: 31469 },
+  wgs: { label: "WGS84 geographisch", epsg: 4326 },
+};
+// Liefert {rw, hw, crs, zone} – rw/hw in Metern (bzw. Grad bei wgs)
+function project(lat, lon, key, zonePrefix) {
+  if (key === "gkauto") key = "gk" + Math.min(5, Math.max(2, Math.round(wgs2dhdn(lat, lon)[1] / 3)));
+  if (key === "utm32" || key === "utm33") {
+    const z = key === "utm32" ? 32 : 33;
+    const p = tmForward(lat, lon, 6 * z - 183, GRS80, 0.9996, 500000, 0);
+    return { rw: p.E + (zonePrefix ? z * 1e6 : 0), hw: p.N, key, zone: z };
+  }
+  if (key.startsWith("gk")) {
+    const z = +key.slice(2), [la, lo] = wgs2dhdn(lat, lon);
+    const p = tmForward(la, lo, 3 * z, BESSEL, 1, z * 1e6 + 500000, 0);
+    return { rw: p.E, hw: p.N, key, zone: z };
+  }
+  return { rw: lon, hw: lat, key: "wgs", zone: null };
+}
+
+// --- Für das Messprotokoll ---
+const pref = { crs: "utm32", dec: "0", zpre: false, dcomma: true, wfmt: "dd" };
+try { Object.assign(pref, JSON.parse(localStorage.getItem("tk25-proto") || "{}")); } catch (e) {}
+$("crs").value = pref.crs; $("dec").value = pref.dec; $("zpre").checked = pref.zpre; $("dcomma").checked = pref.dcomma; $("wfmt").value = pref.wfmt;
+function fmtNum(v, d) {
+  const s = v.toFixed(d);
+  return $("dcomma").checked ? s.replace(".", ",") : s;
+}
+function coordsFor(lat, lon) {
+  const key = $("crs").value, dec = +$("dec").value;
+  const r = project(lat, lon, key, $("zpre").checked);
+  const c = CRS[r.key];
+  if (r.key === "wgs") {
+    const d = Math.max(dec + 5, 6);
+    return { rw: fmtNum(r.rw, d), hw: fmtNum(r.hw, d), crs: c.label + " (EPSG:" + c.epsg + ")", lrw: "Länge (E)", lhw: "Breite (N)", key: r.key };
+  }
+  let label = c.label + " (EPSG:" + c.epsg + ")";
+  if (r.key.startsWith("utm") && $("zpre").checked) label += ", Rechtswert mit Zonenkennung";
+  return { rw: fmtNum(r.rw, dec), hw: fmtNum(r.hw, dec), crs: label, lrw: "Rechtswert (E)", lhw: "Hochwert (N)", key: r.key };
+}
+function wgsFor(lat, lon) {
+  if ($("wfmt").value === "dms") {
+    const f = x => { const s = dms(x); return $("dcomma").checked ? s.replace(".", ",") : s; };
+    return { lat: f(lat) + " N", lon: f(lon) + " E" };
+  }
+  return { lat: fmtNum(lat, 6), lon: fmtNum(lon, 6) };
+}
+function renderProto() {
+  if (!last) return;
+  const c = coordsFor(last.lat, last.lon);
+  $("v_nr").textContent = last.blatt;
+  $("v_name").textContent = nm(last.blatt) || "–";
+  $("v_rw").textContent = c.rw; $("v_hw").textContent = c.hw; $("v_crs").textContent = c.crs;
+  $("l_rw").textContent = c.lrw; $("l_hw").textContent = c.lhw;
+  const w = wgsFor(last.lat, last.lon);
+  $("v_lat").textContent = w.lat; $("v_lon").textContent = w.lon;
+  $("zpre").disabled = !$("crs").value.startsWith("utm");
+  $("crsnote").textContent = c.key.startsWith("gk")
+    ? "Gauß-Krüger: Umrechnung vom GPS (WGS84/ETRS89) ins alte Lagesystem DHDN mit dem bundesweiten 7-Parameter-Satz. Abweichung zur amtlichen Transformation (BeTA2007) je nach Region etwa 1–3 m."
+    : c.key === "wgs" ? "Geographische Koordinaten in Dezimalgrad."
+    : "ETRS89 und WGS84 werden gleichgesetzt; der Unterschied liegt heute unter einem Meter und damit unter der Handy-GPS-Genauigkeit.";
+}
+function savePref() {
+  try { localStorage.setItem("tk25-proto", JSON.stringify({ crs: $("crs").value, dec: $("dec").value, zpre: $("zpre").checked, dcomma: $("dcomma").checked, wfmt: $("wfmt").value })); } catch (e) {}
+  renderProto(); renderBatch();
+}
+["crs", "dec", "zpre", "dcomma", "wfmt"].forEach(id => $(id).addEventListener("change", savePref));
+async function copyField(text, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+    const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.append(ta); ta.select();
+    try { ok = document.execCommand("copy"); } catch (e2) {}
+    ta.remove();
+  }
+  if (btn) {
+    const old = btn.dataset.label || btn.textContent; btn.dataset.label = old;
+    btn.textContent = ok ? "Kopiert ✓" : "Bitte markieren"; btn.classList.toggle("done", ok);
+    setTimeout(() => { btn.textContent = old; btn.classList.remove("done"); }, 1600);
+  }
+  return ok;
+}
+document.querySelectorAll(".cp").forEach(b => b.addEventListener("click", () => copyField($(b.dataset.c).textContent, b)));
+$("cpall").addEventListener("click", async () => {
+  const vals = ["v_nr", "v_name", "v_rw", "v_hw", "v_crs", "v_lat", "v_lon"].map(id => $(id).textContent);
+  const ok = await copyField(vals.join("\t"), null);
+  $("toast3").textContent = ok ? "Kopiert – in Excel oder Word-Tabelle in die erste Zelle einfügen" : "Kopieren nicht erlaubt";
+  setTimeout(() => { $("toast3").textContent = ""; }, 3000);
+});
+
 // --- Stapel ---
 let csv = "";
 function renderBatch() {
   const tb = $("tbody"); tb.replaceChildren();
-  const rows = [["Bezeichnung", "Blatt", "Name", "Breite", "Laenge", "Breite_dez", "Laenge_dez", "Randwarnung"]];
+  const rows = [["Bezeichnung", "Blatt", "Name", "Rechtswert", "Hochwert", "Koordinatensystem", "WGS84_Breite", "WGS84_Laenge", "Randwarnung"]];
   $("list").value.split(/\r?\n/).forEach(line => {
     if (!line.trim()) return;
     let label = "", coord = line;
@@ -542,12 +749,14 @@ function renderBatch() {
       tb.append(tr); return;
     }
     const r = tk25(p.lat, p.lon, puffer);
-    td(r.blatt, "num"); td((nm(r.blatt) || "–")); td(dms(p.lat), "num"); td(dms(p.lon), "num");
+    const cc = coordsFor(p.lat, p.lon);
+    td(r.blatt, "num"); td((nm(r.blatt) || "–")); td(cc.rw, "num"); td(cc.hw, "num");
     const e = td(""); const s = document.createElement("span");
     const warn = r.nachbarn.map(n => n.blatt).join(", ");
     s.className = "pill " + (warn ? "warn" : "ok"); s.textContent = warn ? "auch " + warn : "eindeutig";
     e.append(s); tb.append(tr);
-    rows.push([label, r.blatt, nm(r.blatt), dms(p.lat), dms(p.lon), p.lat.toFixed(6), p.lon.toFixed(6), warn]);
+    const ww = wgsFor(p.lat, p.lon);
+    rows.push([label, r.blatt, nm(r.blatt), cc.rw, cc.hw, cc.crs, ww.lat, ww.lon, warn]);
   });
   csv = rows.map(r => r.map(v => /[;"\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v).join(";")).join("\n");
 }
