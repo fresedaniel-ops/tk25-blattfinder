@@ -29,6 +29,10 @@
   --frame: #0494EA;        /* ermitteltes Blatt */
   --water: #0377C2;        /* Links, Fokus, Kopierknöpfe */
   --on-brand: #FFFFFF;
+  --gps-top: #6CC6FA;      /* 3D-Knopf: Hellblau oben */
+  --gps-bot: #0494EA;      /* tegeo Primärblau unten */
+  --gps-edge: #0369A8;     /* Sockel / Unterkante */
+  --gps-glow: rgba(4, 148, 234, .35);
   --warn: #B86A00;         /* Randwarnung */
   --warn-bg: #FDF0DC;
   --ok: #1E7B45;
@@ -233,6 +237,23 @@ tr:last-child td { border-bottom: 0; }
 .gpshelp p, .gpshelp ol { margin: 0; }
 .gpshelp ol { padding-left: 20px; display: grid; gap: 4px; }
 .gpshelp .btn { justify-self: start; }
+.gpsbtn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font: 700 1rem var(--font-body); letter-spacing: .01em; color: #FFFFFF;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .35);
+  background: linear-gradient(180deg, var(--gps-top) 0%, var(--gps-bot) 100%);
+  border: 1px solid var(--gps-edge); border-radius: 10px;
+  padding: 11px 20px 10px; cursor: pointer; position: relative; top: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 5px 0 var(--gps-edge), 0 9px 16px var(--gps-glow);
+  transition: top .08s ease, box-shadow .08s ease, filter .15s ease;
+  margin-bottom: 5px; -webkit-tap-highlight-color: transparent;
+}
+.gpsbtn:hover { filter: brightness(1.06); }
+.gpsbtn:active, .gpsbtn.busy { top: 4px; box-shadow: inset 0 2px 4px rgba(0, 0, 0, .25), 0 1px 0 var(--gps-edge), 0 2px 5px var(--gps-glow); }
+.gpsbtn:focus-visible { outline: 3px solid var(--brand-mid); outline-offset: 3px; }
+.gpsbtn svg { flex: none; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .3)); }
+@media (prefers-reduced-motion: reduce) { .gpsbtn { transition: none; } }
+@media (max-width: 560px) { .gpsbtn { width: 100%; justify-content: center; font-size: 1.05rem; padding: 13px 20px 12px; } }
 .altn { margin: 0; color: var(--muted); font-size: .88rem; }
 p.pill { justify-self: start; margin: 0; }
 .go { font: 600 .82rem var(--font-body); background: none; border: 1px solid var(--rule); border-radius: 4px; color: var(--water); padding: 3px 8px; cursor: pointer; }
@@ -282,7 +303,7 @@ footer p { margin: 0; max-width: 70ch; }
         <button type="button" data-p="200" id="p200">200 m</button>
         <button type="button" data-p="500" id="p500">500 m</button>
       </div>
-      <button type="button" class="btn" id="gps" hidden>Meine Position</button>
+      <button type="button" class="gpsbtn" id="gps" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>Meine Position</button>
       <button type="button" class="btn" id="copy">Ergebnis kopieren</button>
       <span class="toast" id="toast" aria-live="polite"></span>
     </div>
@@ -1163,14 +1184,16 @@ if (STANDALONE) {
       return;
     }
     {
-      $("toast").textContent = "Standort wird ermittelt …";
+      $("toast").textContent = "Standort wird ermittelt …"; $("gps").classList.add("busy");
       navigator.geolocation.getCurrentPosition(pos => {
         const c = pos.coords;
+        $("gps").classList.remove("busy");
         $("coord").value = c.latitude.toFixed(7) + ", " + c.longitude.toFixed(7);
         render();
         $("toast").textContent = "Standort übernommen (Genauigkeit ca. " + Math.round(c.accuracy) + " m)";
         if (c.accuracy > puffer) setPuffer([100, 200, 500].find(v => v >= c.accuracy) || 500);
       }, err => {
+        $("gps").classList.remove("busy");
         $("toast").textContent = err.code === 1
           ? "Standortzugriff nicht erlaubt. Bitte im Browser freigeben oder Koordinaten einfügen."
           : "Standort nicht verfügbar. Bitte Koordinaten einfügen.";
